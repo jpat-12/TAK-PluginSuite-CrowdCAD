@@ -1,0 +1,23 @@
+# CrowdCAD → TAK bridge. Installed by infratak/install.sh — edit there, not here.
+[Unit]
+Description=CrowdCAD for TAK bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=crowdcad-tak
+Group=crowdcad-tak
+Environment=CROWDCAD_TAK_DATA_DIR=/opt/crowdcad-tak/data
+Environment=PYTHONPATH=/opt/crowdcad-tak/app
+# Stdlib only, so the system interpreter — no venv to rebuild after OS upgrades.
+ExecStart=/usr/bin/python3 -m crowdcad_tak serve
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# Reads its config and certs; writes nothing (ProtectSystem=strict keeps all of /opt read-only).
+
+[Install]
+WantedBy=multi-user.target

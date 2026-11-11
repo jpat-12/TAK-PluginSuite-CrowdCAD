@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="760" viewBox="0 0 960 760" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <rect width="960" height="760" rx="12" fill="#080b14"/>
+  <!-- browser chrome -->
+  <rect width="960" height="34" rx="12" fill="#1e2736"/>
+  <rect y="22" width="960" height="12" fill="#1e2736"/>
+  <circle cx="18" cy="17" r="5" fill="#ef4444"/><circle cx="34" cy="17" r="5" fill="#eab308"/><circle cx="50" cy="17" r="5" fill="#10b981"/>
+  <rect x="80" y="8" width="420" height="18" rx="9" fill="#0f1219"/>
+  <text x="94" y="21" fill="#94a3b8" font-size="11">https://console.tak.example.org/crowdcad</text>
+
+  <!-- sidebar -->
+  <rect x="0" y="34" width="190" height="726" fill="#0f1219"/>
+  <line x1="190" y1="34" x2="190" y2="760" stroke="#1e2736"/>
+  <text x="20" y="66" fill="#f1f5f9" font-size="15" font-weight="700">infra-TAK</text>
+  <text x="20" y="80" fill="#94a3b8" font-size="10" font-family="Consolas, monospace">console</text>
+  <line x1="0" y1="96" x2="190" y2="96" stroke="#1e2736"/>
+  <g font-size="13" fill="#cbd5e1">
+    <text x="20" y="124">Dashboard</text>
+    <text x="20" y="154">TAK Server</text>
+    <text x="20" y="184">Authentik</text>
+    <text x="20" y="214">CloudTAK</text>
+    <text x="20" y="244">Node-RED</text>
+  </g>
+  <rect x="0" y="258" width="190" height="32" fill="rgba(6,182,212,.08)"/>
+  <rect x="0" y="258" width="2" height="32" fill="#06b6d4"/>
+  <text x="20" y="279" fill="#06b6d4" font-size="13" font-weight="600">CrowdCAD</text>
+
+  <!-- main -->
+  <text x="222" y="78" fill="#f1f5f9" font-size="22" font-weight="700">CrowdCAD for TAK</text>
+
+  <rect x="222" y="96" width="710" height="40" rx="10" fill="rgba(16,185,129,.08)" stroke="rgba(16,185,129,.3)"/>
+  <text x="238" y="121" fill="#10b981" font-size="13">● CrowdCAD live (realtime) · TAK connected</text>
+
+  <!-- status grid -->
+  <rect x="222" y="148" width="710" height="90" rx="12" fill="#161b26" stroke="#1e2736"/>
+  <g font-size="10" fill="#94a3b8">
+    <rect x="238" y="164" width="164" height="58" rx="8" fill="#0a0e1a"/>
+    <rect x="410" y="164" width="164" height="58" rx="8" fill="#0a0e1a"/>
+    <rect x="582" y="164" width="164" height="58" rx="8" fill="#0a0e1a"/>
+    <rect x="754" y="164" width="162" height="58" rx="8" fill="#0a0e1a"/>
+    <text x="250" y="184">CROWDCAD</text><text x="422" y="184">LAST FULL SYNC</text>
+    <text x="594" y="184">TAK SERVER</text><text x="766" y="184">BRIDGE VERSION</text>
+  </g>
+  <g font-size="12" fill="#f1f5f9" font-family="Consolas, monospace">
+    <text x="250" y="206">crowdcad.example…</text><text x="422" y="206">18:42:07</text>
+    <text x="594" y="206">127.0.0.1 · 412 sent</text><text x="766" y="206">0.1.0</text>
+  </g>
+
+  <!-- events table -->
+  <rect x="222" y="250" width="710" height="166" rx="12" fill="#161b26" stroke="#1e2736"/>
+  <text x="240" y="278" fill="#f1f5f9" font-size="15" font-weight="700">Events on the map</text>
+  <g font-size="12" fill="#94a3b8">
+    <text x="240" y="304">Event</text><text x="430" y="304">Calls</text><text x="490" y="304">Teams</text>
+    <text x="550" y="304">Zones</text><text x="610" y="304">Not on the map</text>
+  </g>
+  <line x1="240" y1="313" x2="914" y2="313" stroke="#1e2736"/>
+  <g font-size="13" fill="#f1f5f9">
+    <text x="240" y="334">Demo Football Game</text>
+    <text x="430" y="334">2</text><text x="490" y="334">2</text><text x="550" y="334">1</text>
+    <text x="610" y="334">call <tspan font-weight="700">009 · Laceration</tspan> at “Row 22 by the hot…”</text>
+    <text x="610" y="354">team <tspan font-weight="700">Team 3</tspan> at “Concourse 2”</text>
+  </g>
+  <text x="240" y="352" fill="#94a3b8" font-size="11">e1f2g3h4i5j6k7l</text>
+  <line x1="240" y1="366" x2="914" y2="366" stroke="#1e2736"/>
+  <text x="240" y="390" fill="#94a3b8" font-size="12">Calls and teams can only be placed when their location is a post on a venue layer with map</text>
+  <text x="240" y="405" fill="#94a3b8" font-size="12">bounds (GeoJSON-imported, or bounds set below).</text>
+
+  <!-- settings (abridged) -->
+  <rect x="222" y="428" width="710" height="222" rx="12" fill="#161b26" stroke="#1e2736"/>
+  <text x="240" y="456" fill="#f1f5f9" font-size="15" font-weight="700">Settings</text>
+  <g font-size="12" fill="#94a3b8">
+    <text x="240" y="480">CrowdCAD PocketBase URL (what CrowdCAD's NEXT_PUBLIC_POCKETBASE_URL points at)</text>
+    <text x="240" y="532">Bridge account (a CrowdCAD user; read-only use)</text>
+    <text x="580" y="532">Password (set — leave blank to keep)</text>
+    <text x="240" y="584">Teams carried by their own ATAK device — one per line: Team 1 = ANDROID-abc123</text>
+  </g>
+  <g font-size="12" fill="#f1f5f9" font-family="Consolas, monospace">
+    <rect x="240" y="488" width="674" height="30" rx="6" fill="#0a0e1a" stroke="#1e2736"/>
+    <text x="250" y="508">https://crowdcad.example.org</text>
+    <rect x="240" y="540" width="326" height="30" rx="6" fill="#0a0e1a" stroke="#1e2736"/>
+    <text x="250" y="560">tak-bridge@example.org</text>
+    <rect x="580" y="540" width="334" height="30" rx="6" fill="#0a0e1a" stroke="#1e2736"/>
+    <text x="590" y="560">••••••••</text>
+    <rect x="240" y="592" width="674" height="44" rx="6" fill="#0a0e1a" stroke="#1e2736"/>
+    <text x="250" y="612">Team 2 = ANDROID-t2</text>
+  </g>
+  <text x="900" y="628" text-anchor="end" fill="#475569" font-size="11">… publish options, map bounds, WebTAK origins, Save</text>
+
+  <!-- clients -->
+  <rect x="222" y="662" width="710" height="84" rx="12" fill="#161b26" stroke="#1e2736"/>
+  <text x="240" y="688" fill="#f1f5f9" font-size="15" font-weight="700">Clients</text>
+  <rect x="240" y="698" width="330" height="36" rx="8" fill="#0a0e1a"/>
+  <text x="252" y="720" fill="#cbd5e1" font-size="12">ATAK — CrowdCAD APK, nothing to configure</text>
+  <rect x="580" y="698" width="334" height="36" rx="8" fill="#0a0e1a"/>
+  <text x="592" y="720" fill="#f1f5f9" font-size="12" font-family="Consolas, monospace">https://crowdcad-tak.tak.example.org</text>
+
+  <text x="944" y="752" text-anchor="end" fill="#475569" font-size="10">MOCKUP · layout from infratak/crowdcad_infratak.py · demo fixture data</text>
+</svg>

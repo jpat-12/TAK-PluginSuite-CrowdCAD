@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="560" viewBox="0 0 960 560" font-family="Roboto, Segoe UI, Helvetica, Arial, sans-serif">
+  <!-- device frame -->
+  <rect width="960" height="560" rx="26" fill="#000"/>
+  <rect x="16" y="16" width="928" height="528" rx="14" fill="#2b3a2e"/>
+  <clipPath id="screen"><rect x="16" y="16" width="928" height="528" rx="14"/></clipPath>
+
+  <g clip-path="url(#screen)">
+    <!-- map: venue imagery -->
+    <rect x="16" y="16" width="470" height="528" fill="#3a4a3a"/>
+    <path d="M16 420 L486 380 L486 400 L16 440z" fill="#555c55"/>
+    <path d="M200 16 L230 16 L250 544 L220 544z" fill="#555c55"/>
+    <!-- stadium -->
+    <ellipse cx="250" cy="250" rx="170" ry="120" fill="#5a5f66" stroke="#7a8088" stroke-width="2"/>
+    <rect x="160" y="200" width="180" height="100" rx="6" fill="#2f7a3a" stroke="#e8ebf2" stroke-width="1.5"/>
+    <line x1="250" y1="200" x2="250" y2="300" stroke="#e8ebf2" stroke-width="1"/>
+    <!-- dispatch zone (u-d-f shape from CrowdCAD) -->
+    <path d="M90 170 L250 120 L270 175 L120 230z" fill="rgba(255,169,77,.25)" stroke="#ffa94d" stroke-width="2"/>
+    <text x="122" y="200" fill="#ffa94d" font-size="12" font-weight="700">North stands</text>
+
+    <!-- incident markers -->
+    <g>
+      <circle cx="205" cy="152" r="11" fill="#ffd43b" stroke="#000" stroke-width="1.5"/>
+      <text x="205" y="157" text-anchor="middle" font-size="12" font-weight="700" fill="#000">+</text>
+      <rect x="160" y="128" width="90" height="16" rx="3" fill="rgba(0,0,0,.6)"/>
+      <text x="205" y="140" text-anchor="middle" fill="#fff" font-size="11">007 · Chest pain</text>
+    </g>
+    <g>
+      <circle cx="380" cy="350" r="11" fill="#ffa94d" stroke="#000" stroke-width="1.5"/>
+      <text x="380" y="355" text-anchor="middle" font-size="12" font-weight="700" fill="#000">+</text>
+      <rect x="330" y="326" width="100" height="16" rx="3" fill="rgba(0,0,0,.6)"/>
+      <text x="380" y="338" text-anchor="middle" fill="#fff" font-size="11">008 · Ankle injury</text>
+    </g>
+    <!-- friendly units -->
+    <g>
+      <rect x="218" y="160" width="18" height="12" fill="#80c8ff" stroke="#000"/>
+      <text x="242" y="171" fill="#fff" font-size="11">Team 1</text>
+    </g>
+    <g>
+      <rect x="330" y="420" width="18" height="12" fill="#80c8ff" stroke="#000"/>
+      <text x="354" y="431" fill="#fff" font-size="11">Supervisor 1</text>
+    </g>
+    <!-- self -->
+    <path d="M398 370 l8 18 l-8 -5 l-8 5z" fill="#00e0ff" stroke="#000"/>
+    <text x="410" y="392" fill="#fff" font-size="11">MEDIC-2 (me)</text>
+
+    <!-- toast -->
+    <rect x="42" y="474" width="420" height="40" rx="20" fill="rgba(40,40,40,.95)"/>
+    <text x="252" y="499" text-anchor="middle" fill="#fff" font-size="12">CrowdCAD: assigned to CC-008 — Ankle injury at Gate A</text>
+
+    <!-- drop-down pane -->
+    <rect x="486" y="16" width="458" height="528" fill="#111114"/>
+    <line x1="486" y1="16" x2="486" y2="544" stroke="#333"/>
+    <text x="506" y="48" fill="#e8ebf2" font-size="14" font-weight="700">My status: Available</text>
+    <g font-size="12" font-weight="500" text-anchor="middle">
+      <rect x="506" y="58" width="78" height="32" rx="3" fill="#d6d7d7"/><text x="545" y="79" fill="#000">AVL</text>
+      <g opacity=".55">
+        <rect x="590" y="58" width="78" height="32" rx="3" fill="#d6d7d7"/><text x="629" y="79" fill="#000">RESP</text>
+        <rect x="674" y="58" width="78" height="32" rx="3" fill="#d6d7d7"/><text x="713" y="79" fill="#000">ON SC</text>
+        <rect x="758" y="58" width="78" height="32" rx="3" fill="#d6d7d7"/><text x="797" y="79" fill="#000">TRAN</text>
+        <rect x="842" y="58" width="78" height="32" rx="3" fill="#d6d7d7"/><text x="881" y="79" fill="#000">OOS</text>
+      </g>
+    </g>
+
+    <text x="506" y="118" fill="#7c8598" font-size="11">OPEN INCIDENTS</text>
+    <!-- CC-007 (P1 sorts first) -->
+    <rect x="506" y="126" width="414" height="106" rx="6" fill="#1b1b20" stroke="#ffd43b"/>
+    <text x="518" y="148" fill="#e8ebf2" font-size="14" font-weight="700">P1  CC-007  Chest pain</text>
+    <text x="518" y="167" fill="#ffd43b" font-size="13">On scene</text>
+    <text x="518" y="185" fill="#7c8598" font-size="13">Sec 104 · 4m · Team 1</text>
+    <rect x="518" y="194" width="96" height="30" rx="3" fill="#d6d7d7"/>
+    <text x="566" y="214" text-anchor="middle" fill="#000" font-size="12">Respond</text>
+    <!-- CC-008 (assigned to me: thicker border) -->
+    <rect x="506" y="240" width="414" height="106" rx="6" fill="#1b1b20" stroke="#ffa94d" stroke-width="3"/>
+    <text x="518" y="262" fill="#e8ebf2" font-size="14" font-weight="700">CC-008  Ankle injury</text>
+    <text x="518" y="281" fill="#ffa94d" font-size="13">Dispatched  · assigned to you</text>
+    <text x="518" y="299" fill="#7c8598" font-size="13">Gate A · 1m · MEDIC-2</text>
+    <rect x="518" y="308" width="150" height="30" rx="3" fill="#d6d7d7"/>
+    <text x="593" y="328" text-anchor="middle" fill="#000" font-size="12">Respond (assigned)</text>
+
+    <text x="506" y="378" fill="#7c8598" font-size="11">UNITS</text>
+    <text x="506" y="400" fill="#ffd43b" font-size="13">Team 1  —  On scene · CC-007  (3m)</text>
+    <text x="506" y="422" fill="#24c265" font-size="13">Supervisor 1  —  Available  (1m)</text>
+    <text x="506" y="444" fill="#24c265" font-size="13">MEDIC-2  —  Available  (0m)</text>
+
+    <text x="506" y="482" fill="#7c8598" font-size="12">Read-only view of CrowdCAD dispatch. Patient details stay in CrowdCAD.</text>
+  </g>
+  <text x="930" y="536" text-anchor="end" fill="#555" font-size="10">MOCKUP · panel from CrowdCadDropDown.java · demo data</text>
+</svg>

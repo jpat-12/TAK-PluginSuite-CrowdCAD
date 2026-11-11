@@ -1,0 +1,11 @@
+{
+  "id": "crowdcad-board",
+  "name": "CrowdCAD",
+  "version": "0.1.0",
+  "description": "Live CrowdCAD medical calls and team status from the CrowdCAD for TAK bridge (read-only, no patient data).",
+  "author": "Jonathan Pattara — ILWG CAP",
+  "entry": "index.js",
+  "type": "module",
+  "icon": "🚑",
+  "permissions": ["network"]
+}

@@ -1,0 +1,65 @@
+{
+  "_comment": "ILLUSTRATIVE demo data in CrowdCAD 1.6.0's PocketBase `events` shape (docs/ICD.md). Not a real event; the names and patient details are invented and exist so tests can prove they never reach CoT.",
+  "id": "e1f2g3h4i5j6k7l",
+  "name": "Demo Football Game",
+  "date": "2026-11-14T00:00:00.000Z",
+  "userId": "a1b2c3d4e5f6g7h",
+  "status": "active",
+  "ended": false,
+  "venue": {
+    "id": "m3n4o5p6q7r8s9t",
+    "name": "Demo Stadium",
+    "userId": "a1b2c3d4e5f6g7h",
+    "equipment": [],
+    "layers": [
+      {
+        "id": "l1",
+        "name": "Field Level",
+        "mapUrl": "maps/field.png",
+        "geoBounds": {"north": 39.183, "south": 39.179, "east": -86.523, "west": -86.528},
+        "posts": [
+          {"name": "Gate A", "x": 10, "y": 50, "lat": 39.0, "lng": -86.0},
+          {"name": "Sec 104", "x": 50, "y": 25},
+          {"name": "First Aid", "x": 80, "y": 80, "isClinic": true, "clinicId": "cl1"},
+          "Legacy string post"
+        ],
+        "zones": [
+          {"id": "z1", "name": "North Stands", "color": "#ef4444", "isDispatchZone": true,
+           "points": [{"x": 20, "y": 10}, {"x": 80, "y": 10}, {"x": 80, "y": 40}, {"x": 20, "y": 40}]}
+        ]
+      },
+      {
+        "id": "l2",
+        "name": "Concourse",
+        "mapUrl": "maps/concourse.png",
+        "posts": [{"name": "Concourse 2", "x": 30, "y": 30}]
+      }
+    ]
+  },
+  "staff": [
+    {"team": "Team 1", "location": "Sec 104", "status": "On Scene", "members": ["Alex Doe", "Sam Roe"], "statusSince": 1794700931000},
+    {"team": "Team 2", "location": "Gate A", "status": "Available", "members": ["Jamie Poe"]},
+    {"team": "Team 3", "location": "Concourse 2", "status": "En Route", "members": []}
+  ],
+  "supervisor": [
+    {"team": "Supervisor 1", "location": "First Aid", "status": "Available", "member": "Pat Quinn"}
+  ],
+  "calls": [
+    {"id": "c1", "order": 7, "status": "Assigned", "location": "Sec 104", "assignedTeam": ["Team 1"],
+     "chiefComplaint": "Chest pain", "source": "Event Services", "age": "54", "gender": "M",
+     "notes": "Patient John Smith, DOB 1/2/1970", "priority": true,
+     "log": [{"timestamp": 1794700800000, "message": "Call created for John Smith"},
+             {"timestamp": 1794700900000, "message": "Team 1 assigned"}]},
+    {"id": "c2", "order": 8, "status": "Pending", "location": "Gate A", "assignedTeam": [],
+     "chiefComplaint": "Ankle injury", "age": "19", "gender": "F"},
+    {"id": "c3", "order": 3, "status": "Delivered", "location": "Sec 104", "assignedTeam": ["Team 2"],
+     "chiefComplaint": "Syncope"},
+    {"id": "c4", "order": 9, "status": "Assigned", "location": "Row 22 by the hot dog stand",
+     "assignedTeam": ["Team 3"], "chiefComplaint": "Laceration"},
+    {"id": "c5", "order": 10, "status": "Pending", "location": "First Aid", "assignedTeam": [],
+     "chiefComplaint": "Headache", "clinic": true}
+  ],
+  "eventPosts": [],
+  "eventEquipment": [],
+  "postingTimes": ["08:00", "10:00"]
+}

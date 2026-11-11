@@ -1,0 +1,77 @@
+"""mapping.Item → CoT XML. Wire format: docs/COT_FORMAT.md (incident/unit details are IU Event
+CAD's `__iucad_*` format verbatim, so the IU ATAK plugin reads CrowdCAD calls unmodified)."""
+
+import time
+import xml.etree.ElementTree as ET
+
+from . import IUCAD_FORMAT_VERSION
+
+UNKNOWN = "9999999.0"   # CoT's "not known" for hae/ce/le
+CLOSED_STALE_S = 90     # COT_FORMAT.md: closed incidents re-sent with a 90 s stale, then dropped
+
+TYPES = {
+    "incident": "b-m-p-s-p-i",   # IU's placeholder incident type — must match theirs
+    "unit": "a-f-G-U-C",
+    "zone": "u-d-f",
+    "post": "b-m-p-s-m",
+}
+
+
+def iso(ms):
+    seconds, millis = divmod(int(ms), 1000)
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(seconds)) + f".{millis:03d}Z"
+
+
+def argb(hex_color, alpha=0xFF):
+    """'#3b82f6' → ATAK's signed 32-bit ARGB int."""
+    text = (hex_color or "").lstrip("#")
+    try:
+        rgb = int(text[:6], 16) if len(text) >= 6 else 0x3B82F6
+    except ValueError:
+        rgb = 0x3B82F6
+    value = (alpha << 24) | rgb
+    return value - (1 << 32) if value & 0x80000000 else value
+
+
+def _event(item, now_ms, stale_s):
+    stale_s = CLOSED_STALE_S if item.closed else stale_s
+    root = ET.Element("event", {
+        "version": "2.0", "uid": item.uid, "type": TYPES[item.kind], "how": "h-e",
+        "time": iso(now_ms), "start": iso(now_ms), "stale": iso(now_ms + stale_s * 1000),
+    })
+    ET.SubElement(root, "point", {"lat": f"{item.lat:.7f}", "lon": f"{item.lon:.7f}",
+                                  "hae": UNKNOWN, "ce": UNKNOWN, "le": UNKNOWN})
+    detail = ET.SubElement(root, "detail")
+    ET.SubElement(detail, "contact", {"callsign": str(item.fields.get("callsign") or "")})
+    return root, detail
+
+
+def render(item, now_ms, created_ms, updated_ms, stale_s):
+    root, detail = _event(item, now_ms, stale_s)
+    f = item.fields
+    if item.kind == "incident":
+        attrs = {"v": str(IUCAD_FORMAT_VERSION), "id": f["id"], "status": f["status"], "type": f["type"],
+                 "priority": str(f["priority"]), "location": f["location"], "reportedBy": f["reportedBy"],
+                 "created": str(int(created_ms)), "updated": str(int(updated_ms))}
+        if f.get("assigned"):
+            attrs["assigned"] = f["assigned"]
+        ET.SubElement(detail, "__iucad_incident", attrs)
+    elif item.kind == "unit":
+        # Unmapped status → no unit detail at all (COT_FORMAT.md §1: unknown is ignored, never defaulted).
+        if f.get("status"):
+            attrs = {"v": str(IUCAD_FORMAT_VERSION), "status": f["status"],
+                     "since": str(int(f.get("since") or updated_ms))}
+            if f.get("incident") and f["status"] not in ("AVL", "OOS"):
+                attrs["incident"] = f["incident"]
+            ET.SubElement(detail, "__iucad_unit", attrs)
+    elif item.kind == "zone":
+        for lat, lon in list(item.shape) + item.shape[:1]:   # closed ring: first vertex repeated
+            ET.SubElement(detail, "link", {"point": f"{lat:.7f},{lon:.7f}"})
+        ET.SubElement(detail, "strokeColor", {"value": str(argb(f["color"]))})
+        ET.SubElement(detail, "strokeWeight", {"value": "3.0"})
+        ET.SubElement(detail, "fillColor", {"value": str(argb(f["color"], 0x40))})
+        ET.SubElement(detail, "labels_on", {"value": "true"})
+    if item.kind != "incident" and f.get("layer"):
+        ET.SubElement(detail, "remarks").text = f"CrowdCAD · {f['layer']}"
+    ET.SubElement(detail, "__crowdcad", {"kind": item.kind})
+    return ET.tostring(root, encoding="unicode")

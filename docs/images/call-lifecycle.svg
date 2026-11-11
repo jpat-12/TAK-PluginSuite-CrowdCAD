@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="330" viewBox="0 0 960 330" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <rect width="960" height="330" rx="14" fill="#0f1219"/>
+  <text x="20" y="34" fill="#f1f5f9" font-size="16" font-weight="700">One call, start to finish</text>
+  <text x="20" y="54" fill="#94a3b8" font-size="12">Top: what dispatch does in CrowdCAD. Middle: the IU status on the wire. Bottom: what every TAK client shows.</text>
+
+  <line x1="80" y1="160" x2="880" y2="160" stroke="#1e2736" stroke-width="4"/>
+
+  <g font-size="12" text-anchor="middle">
+    <!-- 1 NEW -->
+    <text x="80" y="92" fill="#cbd5e1">Call created</text>
+    <text x="80" y="108" fill="#cbd5e1">at a post</text>
+    <circle cx="80" cy="160" r="26" fill="#161b26" stroke="#ff5c5c" stroke-width="3"/>
+    <text x="80" y="165" fill="#ff5c5c" font-weight="700" font-size="13">NEW</text>
+    <text x="80" y="212" fill="#f1f5f9">Marker at the post</text>
+    <text x="80" y="228" fill="#ff5c5c">“no unit” in red</text>
+
+    <!-- 2 DISP -->
+    <text x="240" y="92" fill="#cbd5e1">Team assigned</text>
+    <circle cx="240" cy="160" r="26" fill="#161b26" stroke="#ffa94d" stroke-width="3"/>
+    <text x="240" y="165" fill="#ffa94d" font-weight="700" font-size="13">DISP</text>
+    <text x="240" y="212" fill="#f1f5f9">Team's ATAK device</text>
+    <text x="240" y="228" fill="#f1f5f9">vibrates, toasts,</text>
+    <text x="240" y="244" fill="#f1f5f9">opens the call</text>
+
+    <!-- 3 RESP -->
+    <text x="400" y="92" fill="#cbd5e1">(medic taps</text>
+    <text x="400" y="108" fill="#cbd5e1">Respond in ATAK)</text>
+    <circle cx="400" cy="160" r="26" fill="#161b26" stroke="#ffa94d" stroke-width="3" stroke-dasharray="5 3"/>
+    <text x="400" y="165" fill="#ffa94d" font-weight="700" font-size="13">RESP</text>
+    <text x="400" y="212" fill="#f1f5f9">Unit status rides the</text>
+    <text x="400" y="228" fill="#f1f5f9">medic's own PLI;</text>
+    <text x="400" y="244" fill="#94a3b8">CrowdCAD write-back: Phase 4</text>
+
+    <!-- 4 ONSC -->
+    <text x="560" y="92" fill="#cbd5e1">Team On Scene</text>
+    <circle cx="560" cy="160" r="26" fill="#161b26" stroke="#ffd43b" stroke-width="3"/>
+    <text x="560" y="165" fill="#ffd43b" font-weight="700" font-size="13">ONSC</text>
+    <text x="560" y="212" fill="#f1f5f9">Call + team turn</text>
+    <text x="560" y="228" fill="#f1f5f9">yellow everywhere</text>
+
+    <!-- 5 TRAN -->
+    <text x="720" y="92" fill="#cbd5e1">Transporting</text>
+    <circle cx="720" cy="160" r="26" fill="#161b26" stroke="#5c9dff" stroke-width="3"/>
+    <text x="720" y="165" fill="#5c9dff" font-weight="700" font-size="13">TRAN</text>
+    <text x="720" y="212" fill="#f1f5f9">Blue</text>
+
+    <!-- 6 CLOSED -->
+    <text x="880" y="92" fill="#cbd5e1">Delivered /</text>
+    <text x="880" y="108" fill="#cbd5e1">Resolved / Refusal…</text>
+    <circle cx="880" cy="160" r="26" fill="#161b26" stroke="#868e96" stroke-width="3"/>
+    <text x="880" y="165" fill="#868e96" font-weight="700" font-size="11">CLOSED</text>
+    <text x="880" y="212" fill="#f1f5f9">Off every board at</text>
+    <text x="880" y="228" fill="#f1f5f9">once; plain TAK</text>
+    <text x="880" y="244" fill="#f1f5f9">clients within 90 s</text>
+  </g>
+
+  <rect x="20" y="272" width="920" height="42" rx="8" fill="#161b26"/>
+  <text x="36" y="298" fill="#94a3b8" font-size="12">Bridge down? Every marker carries a 5-minute stale and a 2-minute heartbeat, so a dead bridge shows as markers aging off, never as current-looking calls.</text>
+</svg>

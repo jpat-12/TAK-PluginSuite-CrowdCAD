@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Runtime data and secrets: config/secrets/certs live in /opt/crowdcad-tak on the host, never here
+data/
+certs/
+*.pem
+*.key
+*.p12
+secrets.json
+
+# Saved CrowdCAD event records hold patient details; only the invented demo fixture is tracked
+*.event.json
+!bridge/tests/fixtures/event_demo_stadium.json
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ATAK (Gradle): build output, caches, machine-local SDK paths, takdev's generated props.
+# gradle/wrapper/gradle-wrapper.jar and .takdev/aars/takdevlint.aar ARE tracked: the TAK.gov
+# pipeline needs the wrapper to bootstrap, and takdev needs its lint aar.
+.gradle/
+build/
+atak/local.properties
+atak/.takdev/plugin.properties
+*.apk
+*.aab
+
+# WebTAK: the bundle is built at install time (webtak/build.py) with the token baked in —
+# a committed copy would be either useless or a leaked token.
+webtak/dist/
+node_modules/

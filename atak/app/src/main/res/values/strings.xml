@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CrowdCAD</string>
+    <string name="app_desc">Live CrowdCAD event-medical calls and team status on ATAK, from a CrowdCAD for TAK bridge on infra-TAK — plus your own unit status for dispatch. Speaks IU Event CAD\'s CoT format.</string>
+</resources>

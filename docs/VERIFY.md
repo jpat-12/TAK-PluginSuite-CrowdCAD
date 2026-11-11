@@ -1,0 +1,48 @@
+# Verify — release smoke test
+
+## Automated (dev box)
+
+```bash
+cd bridge && python -m unittest discover -s tests            # bridge, API, Caddy, TLS (hook tests skip w/o Flask)
+INFRATAK_REPO=../../infra-TAK <python with flask+psutil> -m unittest discover -s tests -p test_infratak_hook.py
+cd ../atak && ./gradlew assembleCivDebug assembleCivRelease testCivDebugUnitTest   # JAVA_HOME = Android Studio jbr
+cd .. && node --test webtak/test/
+CLOUDTAK_DIR=/path/to/CloudTAK node cloudtak/check-in-cloudtak.mjs   # CloudTAK's own lint + vue-tsc
+```
+
+## On an infra-TAK host (not yet run: first time through, write down what differs)
+
+1. `sudo bash infratak/install.sh --tak-group <medical group> --cloudtak --webtak`: ends with ✓,
+   no ⚠ about the CA, groups or public URL.
+2. Console → **CrowdCAD**: card and sidebar link present; banner says "waiting for settings";
+   Clients card shows `https://crowdcad-tak.<fqdn>`.
+3. Create a CrowdCAD user for the bridge; enter URL + account on the page → Save. Banner turns
+   green: "CrowdCAD live (realtime) · TAK connected".
+4. `crowdcad-tak check`: both ✓. `crowdcad-tak preview`: prints CoT for the active event.
+   `curl https://crowdcad-tak.<fqdn>/status` → 404 (console-only); `/api/v1/info` → JSON.
+5. In CrowdCAD, start an event on a **GeoJSON-imported** venue. Zones appear in ATAK (device in
+   the same TAK group) within seconds.
+6. Create a call at a post → incident marker at the post, `NEW`, on every client. Assign a team →
+   `DISP`; team On Scene → `ONSC`.
+7. Create a call with a free-text location → listed under "Not on the map" on the console page
+   and in every board; nothing on the map.
+8. Resolve the call → gone from boards and (ATAK plugin / IU Event CAD) the map at once; plain
+   ATAK within ~90 s. End the event → everything goes the same way.
+9. `systemctl stop crowdcad-tak` → markers and board entries go stale within 5 min; note what
+   ATAK does with stale markers (grey vs remove) for the README.
+10. Run infra-TAK **Update Now**, and redeploy any infra-TAK module (rewrites the Caddyfile) →
+    the CrowdCAD page and `crowdcad-tak.<fqdn>` still work.
+
+## Clients
+
+11. **ATAK** (two devices, CrowdCAD APK, same TAK group as the bridge): CrowdCAD toolbar button
+    opens the board; open calls listed priority-first; tap a call → map centres on it.
+12. Map device A's uid to a team on the console page (`Team 1 = ANDROID-…`), assign that team in
+    CrowdCAD → device A vibrates, toasts, opens the call. Tap **Respond** → device B's board
+    shows A as Responding within seconds (A's PLI carries it).
+13. Kill and restart ATAK on A mid-call → status is still Responding (persisted).
+14. **CloudTAK**: Settings → Refresh App; menu → CrowdCAD shows the same board as ATAK; tap a call
+    → map flies to it. Stop the bridge → the panel shows an error but keeps the last board.
+15. **WebTAK**: hard-refresh; sidebar tool **CrowdCAD** opens a docked drawer with the board. If
+    it says it can't reach the bridge, add WebTAK's exact page origin on the console page
+    (WebTAK page origins).

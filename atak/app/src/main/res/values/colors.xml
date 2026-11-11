@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="cc_bg_root">#FF111114</color>
+    <color name="cc_bg_card">#FF1B1B20</color>
+    <color name="cc_text_primary">#FFE8EBF2</color>
+    <color name="cc_text_secondary">#FF7C8598</color>
+    <!-- Status colours: the same on every client (WebTAK format.js, CloudTAK types.ts). -->
+    <color name="cc_new">#FFFF5C5C</color>
+    <color name="cc_disp">#FFFFA94D</color>
+    <color name="cc_onsc">#FFFFD43B</color>
+    <color name="cc_tran">#FF5C9DFF</color>
+    <color name="cc_avl">#FF24C265</color>
+    <color name="cc_oos">#FF868E96</color>
+</resources>
