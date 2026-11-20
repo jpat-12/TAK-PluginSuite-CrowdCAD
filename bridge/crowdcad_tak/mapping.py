@@ -63,6 +63,9 @@ class Unplaced:
     kind: str
     label: str
     location: str
+    # What the web boards list for it (same fields as a placed call/unit, never more): unplaced
+    # calls and teams still belong on the board, just not on the map.
+    details: dict = field(default_factory=dict)
 
 
 def slug(text):
@@ -130,20 +133,48 @@ def team_incidents(event, config):
     return out
 
 
+TAK_UID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$")
+
+
+def unit_uids(event, config):
+    """Team/supervisor name → the TAK device carrying it. Per event from the unit's own `takUid`
+    (written by the manage API when the event was created from TAK, manage.py), else the
+    console's config team_uids. Same validation as manage.UNIT_UID: it goes into CoT."""
+    out = dict(config.get("team_uids") or {})
+    for team in list(event.get("staff") or []) + list(event.get("supervisor") or []):
+        uid = team.get("takUid")
+        if team.get("team") and isinstance(uid, str) and TAK_UID.match(uid):
+            out[team["team"]] = uid
+    return out
+
+
 def device_teams(event, config):
-    """Teams carried by their own ATAK device (config team_uids) — no bridge marker, but the
-    web board still lists them with dispatch's status for them."""
-    team_uids = config.get("team_uids") or {}
+    """Teams carried by their own ATAK device (takUid / config team_uids) — no bridge marker,
+    but the web board still lists them with dispatch's status for them."""
+    team_uids = unit_uids(event, config)
     incidents = team_incidents(event, config)
     out = []
     for team in list(event.get("staff") or []) + list(event.get("supervisor") or []):
         name = team.get("team")
         if name in team_uids:
-            out.append({"name": name, "status": UNIT_STATUS.get(team.get("status") or ""),
+            out.append({"name": name, "uid": team_uids[name], "status": UNIT_STATUS.get(team.get("status") or ""),
                         "incident": incidents.get(name), "location": team.get("location") or "",
                         "supervisor": "member" in team,
                         "since": team.get("statusSince") if isinstance(team.get("statusSince"), (int, float)) else None})
     return out
+
+
+def callsign_key(name):
+    """"Team 1", "team1", "TEAM-1" → "team1": how an ATAK callsign is matched to a unit name."""
+    return re.sub(r"[^a-z0-9]", "", str(name or "").lower())
+
+
+def free_units(event, config):
+    """Teams/supervisors no device carries yet → [name]. A phone whose ATAK callsign matches one
+    links itself to it on its first status tap (fieldstatus.py)."""
+    bound = unit_uids(event, config)
+    return [t["team"] for t in list(event.get("staff") or []) + list(event.get("supervisor") or [])
+            if t.get("team") and t["team"] not in bound]
 
 
 def build(event, config):
@@ -152,7 +183,7 @@ def build(event, config):
     prefix = event_prefix(eid)
     publish = config.get("publish") or {}
     overrides = config.get("layer_bounds") or {}
-    team_uids = config.get("team_uids") or {}
+    team_uids = unit_uids(event, config)
     id_prefix = _id_prefix(event, config)
     ended = bool(event.get("ended"))
 
@@ -179,11 +210,14 @@ def build(event, config):
             assigned = [t for t in call.get("assignedTeam") or [] if t]
             where = geo.post_location(call.get("location"), event, overrides)
             label = f"{iid[len(id_prefix) + 1:]} · {call.get('chiefComplaint') or 'Call'}"
+            times = _log_times(call.get("log"))
             if not where:
                 if not closed:
-                    unplaced.append(Unplaced("call", label, call.get("location") or ""))
+                    unplaced.append(Unplaced("call", label, call.get("location") or "", {
+                        "id": iid, "status": status, "type": call.get("chiefComplaint") or "Unknown",
+                        "priority": 1 if call.get("priority") else 2, "reportedBy": call.get("source") or "CrowdCAD",
+                        "assigned": assigned, "created": min(times) if times else None}))
                 continue
-            times = _log_times(call.get("log"))
             # Incident fields — the complete list of what leaves CrowdCAD for a call.
             fields = {
                 "callsign": label,
@@ -209,7 +243,10 @@ def build(event, config):
             where = geo.post_location(team.get("location"), event, overrides)
             if not where:
                 if not ended:
-                    unplaced.append(Unplaced("team", name, team.get("location") or ""))
+                    unplaced.append(Unplaced("team", name, team.get("location") or "", {
+                        "status": UNIT_STATUS.get(team.get("status") or ""), "incident": team_incident.get(name),
+                        "supervisor": "member" in team,
+                        "since": team.get("statusSince") if isinstance(team.get("statusSince"), (int, float)) else None}))
                 continue
             fields = {"callsign": name, "location": team.get("location") or "",
                       "status": UNIT_STATUS.get(team.get("status") or ""),

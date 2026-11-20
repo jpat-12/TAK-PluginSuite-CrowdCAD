@@ -2,12 +2,13 @@
 // PLUGIN_VERSION: read from the repo-root VERSION file, the one version shared by the bridge,
 //                 the CloudTAK/WebTAK plugins and this APK. Bump PATCH by 0.0.1 per build unless a
 //                 bigger bump is asked for.
-// ATAK_VERSION:   the ATAK SDK this tree compiles against.
+// ATAK_VERSION:   the ATAK SDK this tree compiles against: 5.6.0 by default, or `atak.version`
+//                 from local.properties / -P (e.g. 5.7.0) with atak.sdk.path pointing at that SDK.
+//                 Same Java for both: nothing CrowdCAD calls changed between 5.6 and 5.7.
 ////////////////////////////////////////////////////////////////////////////////
 
 buildscript {
     ext.PLUGIN_VERSION = new File(rootDir, "../VERSION").text.trim()
-    ext.ATAK_VERSION = '5.6.0'
 
     def getValueFromPropertiesFile = { propFile, key ->
         if (!propFile.isFile() || !propFile.canRead())
@@ -33,6 +34,10 @@ buildscript {
     ext.takrepoPassword = getProperty('takrepo.password', 'invalid')
     ext.takdevPlugin = getProperty('takdev.plugin', "${rootDir}/buildtools/atak-gradle-takdev.jar")
     ext.atakSdkPath  = getProperty('atak.sdk.path', null)
+    ext.ATAK_VERSION = getProperty('atak.version', '5.6.0').toString().trim()
+    if (!(ATAK_VERSION ==~ /5\.[0-9]+\.[0-9]+/)) {
+        throw new GradleException("atak.version must look like 5.7.0, got '${ATAK_VERSION}'")
+    }
 
     repositories {
         google()
@@ -190,6 +195,13 @@ android {
 }
 
 afterEvaluate {
+    // The manifest's atakApiVersion must match the SDK compiled against, or ATAK refuses to load
+    // the plugin ("incompatible"). SDK folders are named ATAK-CIV-<version>-SDK, so a 5.6 path
+    // with atak.version=5.7.0 (or the reverse) is almost certainly a mix-up.
+    if (atakSdkPath && !atakSdkPath.toString().contains("-${atakMajorMinor()}.")) {
+        logger.warn("WARNING: building for ATAK ${ATAK_VERSION} but atak.sdk.path is ${atakSdkPath}. " +
+                "Set atak.version to that SDK's version, or point atak.sdk.path at the ${atakMajorMinor()} SDK.")
+    }
     // proguard-gradle.txt's -applymapping needs atak.proguard.mapping set to something
     // resolvable even when takdev didn't supply the SDK mapping.
     if (!System.properties.containsKey('atak.proguard.mapping')) {

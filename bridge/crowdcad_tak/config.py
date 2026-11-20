@@ -14,6 +14,20 @@ DEFAULTS = {
     # PocketBase base URL of the CrowdCAD instance, e.g. http://127.0.0.1:8090 or
     # https://crowdcad.example.org (wherever NEXT_PUBLIC_POCKETBASE_URL points).
     "crowdcad_url": "",
+    # Public URL of the CrowdCAD web app itself (not PocketBase), e.g. https://crowdcad.example.org.
+    # The web clients' Dispatch button opens <this>/events/<id>/dispatch: dispatchers work in
+    # CrowdCAD's own screen, signed in as themselves. Empty = no Dispatch button.
+    # install.sh --with-crowdcad sets it; otherwise set it on the console page.
+    "crowdcad_app_url": "",
+    # IANA time zone for the "hhmm - …" prefixes in CrowdCAD logs written by TAK dispatch
+    # (CrowdCAD writes browser-local time), e.g. America/Chicago. Empty = the host's zone.
+    "timezone": "",
+    # Field status: a medic's status taps in the ATAK CrowdCAD plugin update CrowdCAD (fieldstatus.py),
+    # for units carried by a device (takUid or team_uids). false = ATAK-only, as before.
+    "field_status": True,
+    # A tap from a phone no unit is linked to yet links it to the free unit whose name matches its
+    # ATAK callsign ("Team 1" ↔ TEAM1), saved as that unit's takUid. false = only picked contacts.
+    "claim_by_callsign": True,
     # A CrowdCAD account for the bridge. Read-only use: PocketBase lets any signed-in user
     # list/view every event (ICD §2.3), so it needs no sharing and no admin.
     "crowdcad_identity": "",
@@ -59,6 +73,9 @@ SECRET_DEFAULTS = {
     # Bearer token for /api/v1/board, shared by the CloudTAK relay and the WebTAK bundle.
     # Empty = board disabled. install.sh generates one.
     "board_token": "",
+    # Bearer token for /api/v1/manage/* (create/end events from TAK). CloudTAK's server half only,
+    # never the WebTAK bundle (anyone who loads WebTAK could read it there). Empty = disabled.
+    "manage_token": "",
 }
 
 

@@ -33,9 +33,9 @@ import java.util.List;
 /**
  * The CrowdCAD panel: this device's status bar, then open incidents (priority first, tap to
  * show on the map, "Respond" to take one), then units. UI only: data comes from the
- * {@link Board}, status changes go to the {@link StatusReporter}. Read-only towards CrowdCAD —
- * the medic's status reaches dispatch on their PLI (writing it into CrowdCAD is the bridge's
- * Phase 4).
+ * {@link Board}, status changes go to the {@link StatusReporter}. The medic's status rides on
+ * their PLI; the bridge writes each tap into CrowdCAD (bridge fieldstatus.py), linking this
+ * phone to the unit named like its callsign if no one picked it as a contact.
  */
 public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnStateListener, Board.Listener {
 
@@ -119,7 +119,8 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
         incidentsBox = column(col);
         header(col, "Units");
         unitsBox = column(col);
-        TextView foot = text(col, "Read-only view of CrowdCAD dispatch. Patient details stay in CrowdCAD.", false);
+        TextView foot = text(col, "Your status taps update CrowdCAD dispatch. Not linked to a unit yet? Set your ATAK callsign "
+                + "to your CrowdCAD unit name (e.g. Team 1). Patient details stay in CrowdCAD.", false);
         foot.setPadding(0, dp(12), 0, 0);
         return scroll;
     }
