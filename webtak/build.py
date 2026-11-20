@@ -20,7 +20,8 @@ SRC = os.path.join(HERE, "plugin", "src")
 DEFAULT_OUT = os.path.join(HERE, "dist", "crowdcad-board.plugin.js")
 
 # Dependency order: config first, core (constructs the singleton) last, then the entry.
-MODULES = ["config.js", "board-client.js", "format.js", "styles.js", "ui.js", "floating-panel.js", "core.js"]
+MODULES = ["config.js", "board-client.js", "format.js", "styles.js", "dispatch-window.js", "ui.js",
+           "floating-panel.js", "core.js"]
 
 IMPORT = re.compile(r"^\s*import\s.+\sfrom\s.+;?\s*$")
 

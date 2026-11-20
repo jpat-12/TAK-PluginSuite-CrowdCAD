@@ -35,6 +35,20 @@ const CSS = `
 .wcad-panel-head { display: flex; align-items: center; padding: 8px 12px; background: #17171b; cursor: move; color: #e8ebf2; }
 .wcad-panel-head span { flex: 1; font-weight: 600; }
 .wcad-host { flex: 1; min-height: 0; }
+.wcad-event-head { display: flex; align-items: center; gap: 8px; }
+.wcad-event-head span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wcad-dispatch-btn { color: #fff; background: #1f6feb; border-color: #1f6feb; text-transform: none; letter-spacing: 0; font-size: 12px; }
+.wcad-dispatch-btn:hover { background: #388bfd; border-color: #388bfd; }
+.wcad-link { color: #58a6ff; }
+.wcad-chip { background: rgba(255,212,59,.12); color: #ffd43b; border-radius: 3px; padding: 0 5px; font-size: 10px; }
+.wcad-yellow { color: #ffd43b; }
+.wcad-note { margin: 8px 12px; color: #ffd43b; font-size: 11px; }
+.wcad-dispatch-wrap { z-index: 9999; }
+.wcad-dispatch { resize: both; min-width: 400px; min-height: 300px; background: #111114; }
+.wcad-dispatch .wcad-panel-head { gap: 8px; }
+.wcad-dispatch .wcad-panel-head span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wcad-dispatch-open { text-decoration: none; white-space: nowrap; }
+.wcad-dispatch-frame { flex: 1; width: 100%; border: 0; background: #fff; }
 `;
 
 let injected = false;

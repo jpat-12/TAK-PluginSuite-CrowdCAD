@@ -11,7 +11,9 @@ source "$CROWDCAD_HOME/bin/lib.sh"
 
 if [ "${DO_CADDY:-1}" = "1" ]; then
     python3 "$CROWDCAD_HOME/bin/crowdcad_caddy.py" ensure --reload --console-dir "${CONSOLE_DIR:-}" \
-        ${CROWDCAD_DOMAIN:+--domain "$CROWDCAD_DOMAIN"} || warn "Caddy block not re-applied"
+        ${CROWDCAD_DOMAIN:+--domain "$CROWDCAD_DOMAIN"} \
+        ${APP_HOST:+--app-host "$APP_HOST" --app-web "$APP_WEB" --app-pocketbase "$APP_PB"} \
+        || warn "Caddy block not re-applied"
 fi
 
 case "${HOOK_MODE:-none}" in

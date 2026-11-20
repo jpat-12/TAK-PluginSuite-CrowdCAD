@@ -26,11 +26,18 @@ class BoardTest(unittest.TestCase):
         self.assertEqual((data["api"], data["bridge"]["crowdcad"]), (1, "live"))
         event = data["events"][0]
         self.assertEqual((event["id"], event["name"]), (EID, "Demo Football Game"))
-        self.assertEqual([c["id"] for c in event["calls"]], ["CC-007", "CC-008"])   # priority 1 first
+        self.assertEqual([c["id"] for c in event["calls"]], ["CC-007", "CC-008", "CC-009"])   # priority 1 first
+        unplaced = event["calls"][2]                                    # still listed, just not on the map
+        self.assertEqual((unplaced["placed"], unplaced["lat"], unplaced["location"]),
+                         (False, None, "Row 22 by the hot dog stand"))
+        self.assertTrue(event["calls"][0]["placed"])
+        self.assertIn("date", event)
         c1 = event["calls"][0]
         self.assertEqual(c1["assigned"], [{"uid": f"crowdcad-{EID}-team-team-1", "callsign": "Team 1"}])
         self.assertEqual((c1["status"], c1["location"], c1["created"]), ("ONSC", "Sec 104", 1794700800000))
-        self.assertEqual([u["callsign"] for u in event["units"]], ["Team 1", "Team 2", "Supervisor 1"])
+        # Team 3 has no placeable post: listed (placed=false), not dropped
+        self.assertEqual([u["callsign"] for u in event["units"]], ["Team 1", "Team 2", "Team 3", "Supervisor 1"])
+        self.assertFalse(next(u for u in event["units"] if u["callsign"] == "Team 3")["placed"])
         self.assertEqual(event["units"][0]["incident"], "CC-007")
         self.assertEqual(len(event["unplaced"]), 2)
 
@@ -42,12 +49,20 @@ class BoardTest(unittest.TestCase):
                           units["Team 1"]["incident"]), ("ANDROID-abc", True, "ONSC", "CC-007"))
         self.assertEqual(data["events"][0]["calls"][0]["assigned"], [{"uid": "ANDROID-abc", "callsign": "Team 1"}])
 
+    def test_dispatch_url_only_when_the_crowdcad_app_is_known(self):
+        data = board.build(published(), 0)
+        self.assertIsNone(data["crowdcadUrl"])
+        self.assertIsNone(data["events"][0]["dispatchUrl"])            # clients hide the Dispatch button
+        data = board.build(published(crowdcad_app_url="https://crowdcad.example.org/"), 0)
+        self.assertEqual(data["crowdcadUrl"], "https://crowdcad.example.org")
+        self.assertEqual(data["events"][0]["dispatchUrl"], f"https://crowdcad.example.org/events/{EID}/dispatch")
+
     def test_closed_calls_leave_the_board(self):
         pub = published()
         event = demo()
         event["calls"][0]["status"] = "Resolved"
         pub.apply(event)
-        self.assertEqual([c["id"] for c in board.build(pub, 0)["events"][0]["calls"]], ["CC-008"])
+        self.assertEqual([c["id"] for c in board.build(pub, 0)["events"][0]["calls"]], ["CC-008", "CC-009"])
 
     def test_no_patient_or_member_data(self):
         wire = json.dumps(board.build(published(), 0))

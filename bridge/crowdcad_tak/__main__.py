@@ -16,6 +16,8 @@ import threading
 
 from . import VERSION, api, config as configuration
 from .bridge import Publisher, Runner
+from .fieldstatus import FieldStatus
+from .manage import Manager
 from .pocketbase import PocketBase, PocketBaseError
 from .takclient import TakClient
 
@@ -39,8 +41,25 @@ def serve(cfg, secrets):
         threading.Event().wait()
     pb, tak = _clients(cfg, secrets)
     runner = Runner(cfg, pb, tak)
-    api.make_server(cfg["status_listen"], runner.status, api.runner_board(runner),
-                    secrets.get("board_token"), cfg.get("cors_origins"))
+    # Its own PocketBase client (same account): HTTP threads never share the runner's.
+    manager = Manager(PocketBase(cfg["crowdcad_url"], cfg["crowdcad_identity"], secrets["crowdcad_password"]),
+                      cfg.get("crowdcad_app_url"),
+                      log=lambda line: print(f"[crowdcad-tak] {line}", file=sys.stderr, flush=True),
+                      timezone=cfg.get("timezone"), layer_bounds=cfg.get("layer_bounds"))
+    try:
+        manager.pb.ensure_auth()   # learn the bridge's own user id, for the board's `endable`
+    except PocketBaseError as error:
+        print(f"[crowdcad-tak] manage API: CrowdCAD sign-in failed for now ({error})", file=sys.stderr, flush=True)
+    field = None
+    if cfg.get("field_status", True):
+        # ATAK status taps → CrowdCAD, through the same compare-and-swap store as CloudTAK dispatch.
+        field = FieldStatus(runner.publisher, manager.store, cfg,
+                            log=lambda line: print(f"[crowdcad-tak] {line}", file=sys.stderr, flush=True))
+        tak.on_message = field.offer
+        field.start()
+    api.make_server(cfg["status_listen"], runner.status, api.runner_board(runner, manager, field),
+                    secrets.get("board_token"), cfg.get("cors_origins"),
+                    manager=manager, manage_token=secrets.get("manage_token"))
     signal.signal(signal.SIGTERM, lambda *_: (runner.stop(), sys.exit(0)))
     print(f"[crowdcad-tak] {VERSION}: {cfg['crowdcad_url']} → TAK {cfg['tak_host']}:{cfg['tak_port']}",
           file=sys.stderr, flush=True)

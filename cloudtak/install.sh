@@ -7,7 +7,7 @@
 # Works with both CloudTAK source layouts (detected below):
 #   plugin/                 → app/plugins/crowdcad/          (13.1xx+)  or api/web/plugins/crowdcad/ (older)
 #   server/plugin-crowdcad.ts  → api/stateless/routes/       (13.1xx+)  or api/routes/            (older)
-# The bridge's public URL and board token are merged into <CloudTAK>/api/.env — a JSON file
+# The bridge's public URL, board token and manage token (create/end events from TAK) are merged into <CloudTAK>/api/.env — a JSON file
 # CloudTAK loads at startup and git ignores, so no core file is edited and infra-TAK's
 # CloudTAK updates (git pull --autostash) leave it alone.
 #
@@ -71,8 +71,12 @@ except ValueError:
     sys.exit(f"{path} exists but isn't JSON; add CROWDCAD_TAK_URL/CROWDCAD_TAK_TOKEN to it by hand.")
 if action == "set":
     data.update(CROWDCAD_TAK_URL=os.environ["CROWDCAD_TAK_URL"], CROWDCAD_TAK_TOKEN=os.environ["CROWDCAD_TAK_TOKEN"])
+    # Optional: without it the plugin hides New event / End event (board + Dispatch still work).
+    if os.environ.get("CROWDCAD_TAK_MANAGE_TOKEN"):
+        data["CROWDCAD_TAK_MANAGE_TOKEN"] = os.environ["CROWDCAD_TAK_MANAGE_TOKEN"]
 else:
-    data.pop("CROWDCAD_TAK_URL", None); data.pop("CROWDCAD_TAK_TOKEN", None)
+    for key in ("CROWDCAD_TAK_URL", "CROWDCAD_TAK_TOKEN", "CROWDCAD_TAK_MANAGE_TOKEN"):
+        data.pop(key, None)
 old = os.umask(0o077)
 with open(path, "w") as stream:
     json.dump(data, stream, indent=4)

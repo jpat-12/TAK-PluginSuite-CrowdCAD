@@ -5,7 +5,7 @@
 // the public plugin API has no HTTP client. Same import Aleph's plugin uses — re-verify it on
 // every CloudTAK upgrade.
 import { std } from '../../../src/std.ts';
-import type { Board, BridgeInfo } from './types.ts';
+import type { Board, BridgeInfo, CreatedEvent, DispatchView, NewCall, NewEvent, TakContact, VenueSummary } from './types.ts';
 
 // The bridge API major this plugin speaks; refuse others instead of showing a wrong board.
 export const SUPPORTED_API = 1;
@@ -16,4 +16,53 @@ export async function info(): Promise<BridgeInfo> {
 
 export async function board(): Promise<Board> {
     return await std('/api/plugin-crowdcad/board') as Board;
+}
+
+export async function venues(): Promise<VenueSummary[]> {
+    return (await std('/api/plugin-crowdcad/venues') as { venues: VenueSummary[] }).venues;
+}
+
+export async function createEvent(event: NewEvent): Promise<CreatedEvent> {
+    return await std('/api/plugin-crowdcad/events', { method: 'POST', body: event }) as CreatedEvent;
+}
+
+export async function endEvent(id: string): Promise<void> {
+    await std(`/api/plugin-crowdcad/events/${encodeURIComponent(id)}/end`, { method: 'POST', body: {} });
+}
+
+// The signed-in user's TAK contacts (CloudTAK's own route; TAK Server filters them to the
+// user's groups). Each picked one becomes a CrowdCAD unit carried by that device.
+export async function contacts(): Promise<TakContact[]> {
+    return await std('/api/marti/api/contacts/all') as TakContact[];
+}
+
+// --- native dispatch (bridge dispatch.py, compare-and-swap) ----------------------------------
+
+function eventPath(eventId: string): string {
+    return `/api/plugin-crowdcad/events/${encodeURIComponent(eventId)}`;
+}
+
+export async function dispatchView(eventId: string): Promise<DispatchView> {
+    return await std(`${eventPath(eventId)}/dispatch`) as DispatchView;
+}
+
+export async function newCall(eventId: string, call: NewCall): Promise<{ callId: string }> {
+    return await std(`${eventPath(eventId)}/calls`, { method: 'POST', body: call }) as { callId: string };
+}
+
+export async function assignUnit(eventId: string, callId: string, unit: string): Promise<void> {
+    await std(`${eventPath(eventId)}/calls/${encodeURIComponent(callId)}/assign`, { method: 'POST', body: { unit } });
+}
+
+export async function setStatusOnCall(eventId: string, callId: string, unit: string, status: string,
+    extra: { clinicId?: string; transportUnit?: string } = {}): Promise<void> {
+    await std(`${eventPath(eventId)}/calls/${encodeURIComponent(callId)}/status`, { method: 'POST', body: { unit, status, ...extra } });
+}
+
+export async function setUnitStatus(eventId: string, unit: string, status: string): Promise<void> {
+    await std(`${eventPath(eventId)}/units/status`, { method: 'POST', body: { unit, status } });
+}
+
+export async function setUnitPost(eventId: string, unit: string, post: string): Promise<void> {
+    await std(`${eventPath(eventId)}/units/post`, { method: 'POST', body: { unit, post } });
 }

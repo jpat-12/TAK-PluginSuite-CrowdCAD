@@ -37,8 +37,13 @@ CrowdCAD unmodified.
 - **Assignment alert:** when dispatch assigns your team (your device is mapped to it on the
   console), the phone vibrates, shows a toast, and opens the call. **Respond** sets you
   Responding on that call.
-- **Your status travels on your own position report**, so every other plugin user sees it. It
-  is not written back into CrowdCAD yet ([Phase 4](docs/PLAN.md#phase-4-unit-status-from-the-field-bi-directional-teams)).
+- **Your status travels on your own position report**, so every other plugin user sees it, and
+  **CrowdCAD follows your taps** when your device carries a unit (picked as a contact in
+  CloudTAK's New event, or mapped on the console page): *Responding / On scene / Transporting*
+  set that on your call (*Respond* on a call you weren't given assigns you to it); *Available*
+  clears you from your call (CrowdCAD closes it "Resolved" if you were the last unit) or makes
+  you Available; *Out of service* puts you On Break when you're not on a call. Logged "via ATAK:
+  <callsign>". Only a new tap counts, so a dispatcher's later change in CrowdCAD stands.
 - No network permission and nothing to configure: the plugin reads CoT the device already gets.
 
 ### CloudTAK and WebTAK: command staff, medical branch, EOC
@@ -48,6 +53,32 @@ CrowdCAD unmodified.
 Both web clients show the **same board**: open calls, teams, and anything CrowdCAD couldn't
 place on the map. It refreshes every 5 s. In CloudTAK, tapping a call or team flies the map to
 it. The markers themselves reach both maps as ordinary CoT.
+
+**Dispatching:** each event has a **Dispatch** button that opens CrowdCAD's own dispatch screen
+for that event over the map (CloudTAK: a floating pane; WebTAK: a floating window; both
+draggable and resizable, with *Open in new window*). The dispatcher signs in to CrowdCAD there
+as themselves, so assigning teams, status changes, new calls and resolving all follow
+CrowdCAD's own rules and land in its call log under their name. The board and the bridge stay
+read-only. The button appears once the bridge knows CrowdCAD's site (`--with-crowdcad` sets it;
+otherwise *CrowdCAD app URL* on the console page). Dispatchers need a CrowdCAD account with
+access to the event (shared with them, or an org event).
+
+**Native dispatch (CloudTAK):** *Dispatch* on an event opens CrowdCAD dispatch inside CloudTAK:
+**New call** (post suggestions, 📍 nearest post to the map center, chief complaint, priority,
+optional unit), every open call with each unit's status on it (En Route → On Scene → Transporting →
+Delivered/Refusal/NMM/…, closing the call for everyone exactly as CrowdCAD does) and an assign
+picker, and every unit's availability and post. Tap a call or unit to fly to it. Each change is
+CrowdCAD's own logic, saved compare-and-swap (never over a newer change made in CrowdCAD) and
+logged "via CloudTAK: <user>". The *CrowdCAD* button still opens CrowdCAD's own screen. The
+bridge's CrowdCAD account must be allowed to update the event: events created from CloudTAK are,
+otherwise make the event an org event in CrowdCAD (or share it with the bridge account).
+
+**New event (CloudTAK):** *+ New event* on the CrowdCAD panel → name, date, a venue built in
+CrowdCAD, and your TAK contacts, each picked as a **team** or **supervisor** (renamable). The event
+is created in CrowdCAD as an org event (every CrowdCAD user can dispatch it), and each unit is
+carried by that contact's device: the phone's own position is the unit on the map, and dispatch
+assignments alert it (ATAK plugin). Events created this way get an **End** button. Pick a venue
+with a GeoJSON-imported map (the list says when one isn't), or nothing reaches the TAK map.
 
 ### infra-TAK console: the operator's view
 
@@ -91,12 +122,12 @@ This is enforced in one place and tested ([docs/COT_FORMAT.md](docs/COT_FORMAT.m
 | You need | Why |
 |---|---|
 | An **infra-TAK** host (Ubuntu 22.04+, Python ≥ 3.10) with TAK Server | The bridge, its TAK certificate and the console page live there |
-| **CrowdCAD on its PocketBase backend** (not Firebase), reachable from that host | It's the only backend with an API the bridge can follow |
+| **CrowdCAD on its PocketBase backend** (not Firebase), reachable from that host, **or** `--with-crowdcad` to run it on the host itself (needs Docker, plus DNS for `crowdcad.<fqdn>`) | It's the only backend with an API the bridge can follow |
 | A **CrowdCAD user for the bridge** | The bridge only reads. Any signed-in user can read events |
 | The **TAK group** your medics' devices are in | Without it, the bridge's markers go to `__ANON__` and nobody in a real group sees them |
 | A venue map built by **GeoJSON import** in CrowdCAD (or map bounds typed on the console page) | CrowdCAD posts are percent-of-image. GeoJSON import is how they get real coordinates |
 | *For the web clients:* a DNS record `crowdcad-tak.<your infra-TAK domain>` → the host | Caddy publishes the board API there |
-| *For ATAK:* ATAK-CIV 5.6 | The plugin is built against the 5.6 SDK |
+| *For ATAK:* ATAK-CIV 5.6 or 5.7 | One APK per ATAK version; build the one that matches your devices ([Build & test](#build--test)) |
 
 ---
 
@@ -142,6 +173,27 @@ It should end with ✓ and no ⚠ lines (output abridged, illustrative):
 Re-running it is safe: it upgrades in place and never makes a second certificate or overwrites
 your settings. All the options are in the header of [`infratak/install.sh`](infratak/install.sh).
 
+### 2b. No CrowdCAD yet? Run it on the same host
+
+```bash
+sudo bash TAK-PluginSuite-CrowdCAD/infratak/install.sh --tak-group MEDICAL --with-crowdcad
+```
+
+This builds CrowdCAD (upstream, unmodified, release `v1.6.0` by default) on PocketBase with Docker,
+publishes it at `https://crowdcad.<fqdn>`, creates the first CrowdCAD admin, a PocketBase superuser
+and an account for the bridge, and points the bridge at it. **You can skip step 3.** The first build
+takes several minutes; re-runs reuse it and never change a password or touch the data.
+
+- **Sign-in details:** `/opt/crowdcad-tak/crowdcad/credentials.json` (root only): `admin` is
+  the CrowdCAD login, `superuser` is PocketBase's admin UI at `https://crowdcad.<fqdn>/_/`.
+- **Public sign-up is closed** by default, because any CrowdCAD user can read every event's calls.
+  Add people with `sudo python3 /opt/crowdcad-tak/bin/crowdcad_app.py add-user EMAIL [--admin]`
+  (prints a one-time password), or pass `--crowdcad-signup open` for CrowdCAD's own behaviour.
+- **Data:** `/opt/crowdcad-tak/crowdcad/pb_data/`, which holds every venue, event and call. Back it up
+  (PocketBase admin UI → Settings → Backups, or copy the folder with the stack stopped).
+- Other options: `--crowdcad-domain`, `--crowdcad-ref`, `--crowdcad-admin EMAIL` (header of `install.sh`).
+  Status: `sudo python3 /opt/crowdcad-tak/bin/crowdcad_app.py status`.
+
 ### 3. Connect it to CrowdCAD
 
 infra-TAK console → **CrowdCAD** (the banner is yellow, "waiting for settings") → enter:
@@ -186,7 +238,9 @@ Then in ATAK: Plugins → load **CrowdCAD**. Devices must be in the same TAK gro
 **Don't install it alongside IU Event CAD** on one device: both put your status on your
 position report.
 
-**To remove:** `sudo bash /opt/crowdcad-tak/bin/uninstall.sh [--purge] [--cloudtak] [--webtak]`.
+**To remove:** `sudo bash /opt/crowdcad-tak/bin/uninstall.sh [--purge] [--cloudtak] [--webtak] [--crowdcad]`.
+Without `--crowdcad`, a CrowdCAD that `--with-crowdcad` installed keeps running and keeps its data.
+`--crowdcad --purge` deletes that data.
 The full on-host checklist is in [docs/VERIFY.md](docs/VERIFY.md).
 
 ---
@@ -225,6 +279,7 @@ board. **After the event:** end it in CrowdCAD and everything closes the same wa
 | Banner says CrowdCAD *unreachable* | Wrong URL (it must be the **PocketBase** URL, not the Next.js site), or the account can't sign in → `crowdcad-tak check` |
 | Banner says *polling — realtime unavailable* | A proxy in front of PocketBase is buffering SSE. Updates still arrive, about every 30 s |
 | Nothing on ATAK, but `check` is ✓ | The device isn't in the bridge's TAK group. Re-run install with the right `--tak-group` |
+| ATAK plugin says "No open incidents" while CrowdCAD has calls | Every call is *Not on the map*: the venue isn't GeoJSON-imported, or calls use free-text locations ("row 114") instead of posts. The bridge then sends ATAK nothing (it never guesses a patient location). Check the console's *Not on the map* list and `curl -s 127.0.0.1:8782/status` (`tak.sent`) |
 | A call is on the boards but not the map | Its location isn't a post on a georeferenced layer (see *Not on the map*) → GeoJSON-import the venue, or enter layer bounds |
 | Assignment alert doesn't fire | The team isn't mapped to that device UID on the console page |
 | WebTAK: "can't reach the bridge" | Missing CORS origin → add WebTAK's exact page origin on the console page |
@@ -238,10 +293,24 @@ board. **After the event:** end it in CrowdCAD and everything closes the same wa
 
 | Part | Command | Gate |
 |---|---|---|
-| Bridge + infra-TAK hook (Python ≥3.10, stdlib) | `cd bridge && python -m unittest discover -s tests` | 64 tests (6 need Flask; real-infra-TAK ones need `INFRATAK_REPO`, see VERIFY.md) |
-| ATAK (5.6 SDK) | `cp atak/local.properties.example atak/local.properties` (edit), then `cd atak && JAVA_HOME="C:/Program Files/Android/Android Studio/jbr" ./gradlew assembleCivDebug testCivDebugUnitTest` | 9 JVM tests, incl. parsing real bridge output |
-| WebTAK | `node --test webtak/test/` (node ≥18, no npm) · bundle: `python3 webtak/build.py` | 5 tests, incl. rendering a board the Python bridge made |
+| Bridge + infra-TAK hook (Python ≥3.10, stdlib) | `cd bridge && python -m unittest discover -s tests` | 80 tests (6 need Flask; real-infra-TAK ones need `INFRATAK_REPO`, see VERIFY.md) |
+| ATAK (5.6 SDK; 5.7 below) | `cp atak/local.properties.example atak/local.properties` (edit), then `cd atak && JAVA_HOME="C:/Program Files/Android/Android Studio/jbr" ./gradlew assembleCivDebug testCivDebugUnitTest` | 9 JVM tests, incl. parsing real bridge output |
+| WebTAK | `node --test webtak/test/board.test.mjs` (node ≥18, no npm) · bundle: `python3 webtak/build.py` | 7 tests, incl. rendering a board the Python bridge made |
 | CloudTAK (13.x) | compiled inside CloudTAK by `cloudtak/install.sh`; check first: `CLOUDTAK_DIR=/path/to/CloudTAK node cloudtak/check-in-cloudtak.mjs` | CloudTAK's own lint + vue-tsc |
+
+**ATAK 5.7 (dev build):** the same `atak/` tree builds for 5.7. Point the three SDK paths in
+`atak/local.properties` at the unzipped `ATAK-CIV-5.7.0.x-SDK` and add `atak.version=5.7.0`
+(or pass it on the command line, keeping a 5.6 `local.properties`):
+
+```bash
+cd atak && ./gradlew assembleCivDebug testCivDebugUnitTest -Patak.version=5.7.0 -Patak.sdk.path="C:/…/ATAK-CIV-5.7.0.7-SDK" -Ptakdev.plugin="C:/…/ATAK-CIV-5.7.0.7-SDK/atak-gradle-takdev.jar"
+```
+
+Output: `ATAK-Plugin-CrowdCAD-<ver>-ATAK-5.7-civ-debug.apk`, signed with the SDK's dev key, for
+ATAK-CIV 5.7 only (ATAK checks the version in the manifest). The build warns if the SDK path and
+`atak.version` don't match. Nothing CrowdCAD uses changed between the 5.6 and 5.7 SDKs
+(FeatureLink's port found one renamed class, which CrowdCAD doesn't use); **the 5.7 APK has not
+been built or run on a device yet.**
 
 After a wire-format change, regenerate the ATAK fixture: `python bridge/tests/make_atak_fixture.py`.
 
@@ -275,8 +344,10 @@ infratak/                       infra-TAK integration (never edits infra-TAK's t
   crowdcad_infratak.py          console hook: /crowdcad status + settings + client info, card, sidebar
   crowdcad_infratak_boot.py, .pth  loads the hook when gunicorn imports the console's app (Aleph-safe)
   crowdcad_caddy.py             crowdcad-tak.<fqdn> site, API paths only, below the user-blocks marker
+                                (+ the crowdcad.<fqdn> app site with --with-crowdcad)
+  crowdcad_app.py               --with-crowdcad: build/run CrowdCAD + PocketBase (Docker), accounts, add-user
   lib.sh, heal.sh, systemd/     shared shell; re-apply after Caddyfile rewrites / "Update Now"; units
-atak/                           ATAK plugin (Java, ATAK-CIV 5.6 SDK, no network permission)
+atak/                           ATAK plugin (Java, ATAK-CIV 5.6 or 5.7 SDK via atak.version, no network permission)
   app/src/main/java/com/atakmap/android/crowdcad/
     CrowdCadMapComponent.java   owns the board, CoT handlers, status reporter, panel; assignment alert
     CrowdCadDropDown.java       the panel: my status, open incidents (tap → map, Respond), units
@@ -310,9 +381,11 @@ webtak/                         WebTAK plugin (plain DOM, WebTAK 4.10 drawer API
 | `install.sh` on a real host | 🔧 Built | Not yet run on a server: VERIFY.md |
 | WebTAK tap → map | ⬜ | No verified WebTAK map API for plugins; positions are on the map as CoT anyway |
 | WinTAK | ⬜ | Not in scope yet; WinTAK shows the CoT markers and shapes without a plugin |
-| Phase 2: infra-TAK deploys CrowdCAD itself (+ offline field node) | ⬜ Next | Caddy routing designed in PLAN.md |
+| Phase 2: infra-TAK deploys CrowdCAD itself | 🔧 Built | `install.sh --with-crowdcad`; first run on a production infra-TAK host 2026-11-19 (see VERIFY.md) |
+| Phase 2b: offline field node | ⬜ | Same install on a LAN box; needs a LAN host name instead of a public one |
 | Phase 3: TAK marker → new CrowdCAD call | ⬜ Designed | Blocked on safe writes (CrowdCAD's `calls` is one array, no concurrency check); plan: a PocketBase hook |
-| Phase 4: medic status from ATAK → CrowdCAD team status | ⬜ | Status already rides the PLI; writing it into CrowdCAD has the same constraint |
+| Phase 4: medic status from ATAK → CrowdCAD team status | 🔧 Built | `fieldstatus.py`, 2026-11-19; compare-and-swap writes; unlinked phones link themselves by callsign; unit-tested, **not yet tapped from a real device** |
+| Native dispatch + New event from CloudTAK | ✅ | Verified end to end on a production infra-TAK host 2026-11-19 (self-test event, since deleted) |
 | what3words → call location | ⬜ | Server-side key only (IU rule); rides on Phase 3 |
 
 ## Deliberate deviations (don't "fix" these back)
