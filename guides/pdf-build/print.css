@@ -1,0 +1,21 @@
+@page { size: Letter; margin: 16mm 15mm 18mm; }
+html { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; font-size: 10.5pt; color: #1f2933; line-height: 1.45; }
+body { max-width: none; margin: 0; padding: 0; background: #fff; }
+h1 { font-size: 22pt; color: #0e7490; border-bottom: 3px solid #06b6d4; padding-bottom: 6px; margin: 0 0 10px; }
+h2 { font-size: 15pt; color: #0f172a; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; margin-top: 22px; break-after: avoid; }
+h3 { font-size: 12pt; color: #0e7490; margin-top: 16px; break-after: avoid; }
+h2 { break-before: auto; }
+a { color: #0e7490; text-decoration: none; }
+code { font-family: Consolas, "DejaVu Sans Mono", monospace; font-size: 9pt; background: #f1f5f9; padding: 1px 3px; border-radius: 3px; }
+pre { background: #0f172a; color: #e2e8f0; padding: 9px 11px; border-radius: 6px; font-size: 8.6pt; line-height: 1.4; white-space: pre-wrap; break-inside: avoid; }
+pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0 12px; font-size: 9.2pt; break-inside: auto; }
+tr { break-inside: avoid; }
+th { background: #e0f2fe; color: #0c4a6e; text-align: left; }
+th, td { border: 1px solid #cbd5e1; padding: 4px 6px; vertical-align: top; }
+blockquote { margin: 10px 0; padding: 6px 12px; border-left: 4px solid #f59e0b; background: #fffbeb; color: #78350f; }
+blockquote p { margin: 3px 0; }
+figure { margin: 10px 0 14px; break-inside: avoid; text-align: center; }
+img { max-width: 100%; max-height: 120mm; border-radius: 8px; }
+figcaption { font-size: 8.5pt; color: #64748b; margin-top: 4px; }
+hr { border: none; border-top: 1px solid #e2e8f0; margin: 16px 0; }
