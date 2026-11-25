@@ -36,3 +36,6 @@ atak/.takdev/plugin.properties
 # a committed copy would be either useless or a leaked token.
 webtak/dist/
 node_modules/
+
+# Pipeline packaging copies VERSION into the Gradle project; never track that copy (root VERSION is the truth)
+atak/VERSION

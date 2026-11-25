@@ -240,6 +240,8 @@ board. **After the event:** end it in CrowdCAD and everything closes the same wa
 |---|---|---|
 | Bridge + infra-TAK hook (Python ≥3.10, stdlib) | `cd bridge && python -m unittest discover -s tests` | 64 tests (6 need Flask; real-infra-TAK ones need `INFRATAK_REPO`, see VERIFY.md) |
 | ATAK (5.6 SDK) | `cp atak/local.properties.example atak/local.properties` (edit), then `cd atak && JAVA_HOME="C:/Program Files/Android/Android Studio/jbr" ./gradlew assembleCivDebug testCivDebugUnitTest` | 9 JVM tests, incl. parsing real bridge output |
+| ATAK (5.7 SDK, same tree) | `cd atak && S="C:/Users/<you>/Desktop/ATAK Development/ATAK-CIV-5.7.0.12-SDK/ATAK-CIV-5.7.0.12-SDK" && JAVA_HOME="C:/Program Files/Android/Android Studio/jbr" ./gradlew -Patak.version=5.7.0 "-Patak.sdk.path=$S" "-Psdk.path=$S" "-Ptakdev.plugin=$S/atak-gradle-takdev.jar" assembleCivDebug testCivDebugUnitTest` | same 9 tests; APK `…-ATAK-5.7-civ-debug.apk`, plugin-api `com.atakmap.app@5.7.0.CIV` |
+| ATAK → TAK.gov pipeline | `python atak/package-submission.py` → `ATAK-Plugin-CrowdCAD-<ver>-ATAK-5.6-src.zip` (+ .sha256) in `Desktop/ATAK Development/CrowdCAD-APKs/` | tracked `atak/` files + VERSION + COT_FORMAT.md; the unzipped package must pass `assembleCivRelease testCivDebugUnitTest` on its own. Form answers: [atak/docs/SUBMISSION.md](atak/docs/SUBMISSION.md) |
 | WebTAK | `node --test webtak/test/` (node ≥18, no npm) · bundle: `python3 webtak/build.py` | 5 tests, incl. rendering a board the Python bridge made |
 | CloudTAK (13.x) | compiled inside CloudTAK by `cloudtak/install.sh`; check first: `CLOUDTAK_DIR=/path/to/CloudTAK node cloudtak/check-in-cloudtak.mjs` | CloudTAK's own lint + vue-tsc |
 

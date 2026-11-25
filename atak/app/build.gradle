@@ -2,12 +2,19 @@
 // PLUGIN_VERSION: read from the repo-root VERSION file, the one version shared by the bridge,
 //                 the CloudTAK/WebTAK plugins and this APK. Bump PATCH by 0.0.1 per build unless a
 //                 bigger bump is asked for.
-// ATAK_VERSION:   the ATAK SDK this tree compiles against.
+// ATAK_VERSION:   the ATAK SDK this tree compiles against. Default 5.6.0; build another one
+//                 from the same tree with -Patak.version=5.7.0 plus -Patak.sdk.path,
+//                 -Psdk.path and -Ptakdev.plugin pointing at that SDK (see README "Build & test").
+//                 The APK name, versionName and versionCode all carry the ATAK version.
 ////////////////////////////////////////////////////////////////////////////////
 
 buildscript {
-    ext.PLUGIN_VERSION = new File(rootDir, "../VERSION").text.trim()
-    ext.ATAK_VERSION = '5.6.0'
+    // In the repo the version lives at ../VERSION (repo root). A TAK.gov pipeline submission zip
+    // contains only this Gradle project, so the packager copies VERSION in beside settings.gradle;
+    // the in-project copy wins when present (it is gitignored, so it never drifts in git).
+    def versionFile = new File(rootDir, "VERSION").isFile() ? new File(rootDir, "VERSION")
+                                                            : new File(rootDir, "../VERSION")
+    ext.PLUGIN_VERSION = versionFile.text.trim()
 
     def getValueFromPropertiesFile = { propFile, key ->
         if (!propFile.isFile() || !propFile.canRead())
@@ -22,6 +29,8 @@ buildscript {
                 getValueFromPropertiesFile(project.rootProject.file('local.properties'), name)
         return (null == prop) ? defValue : prop
     }
+
+    ext.ATAK_VERSION = getProperty('atak.version', '5.6.0')
 
     // takdev reads isDevKitEnabled()/takrepo* from the project even when it's loaded from the
     // local SDK jar, so they must exist. With no `takrepo.url` set (the normal dev-machine case)
@@ -93,12 +102,15 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    // Signed with the stock ATAK SDK dev key straight out of the SDK directory, so there is
-    // no keystore to copy or commit. A real release key (TAK.gov third-party pipeline)
-    // replaces this before anything is fielded.
+    // Signed with the stock ATAK SDK dev key, so there is no keystore to copy or commit.
+    // A real release key (TAK.gov third-party pipeline) replaces this before anything is fielded.
     signingConfigs {
         sdkDebug {
-            storeFile file("${atakSdkPath}/android_keystore")
+            // Local SDK build: the SDK ships android_keystore. Pipeline build (no atak.sdk.path):
+            // takdev drops the same dev keystore in buildDir, as in the stock PluginTemplate.
+            // The pipeline re-signs the release APK with the TAK.gov key either way.
+            storeFile(atakSdkPath ? file("${atakSdkPath}/android_keystore")
+                                  : file("${buildDir}/android_keystore"))
             storePassword "tnttnt"
             keyAlias "wintec_mapping"
             keyPassword "tnttnt"

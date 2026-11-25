@@ -5,8 +5,7 @@ Facts an agent needs that the code can't show. Workspace-wide rules: `../CLAUDE.
 ## Shape
 - One bridge (`bridge/`, Python) + infra-TAK integration (`infratak/`) + three clients:
   ATAK (`atak/`, reads CoT), CloudTAK and WebTAK (`cloudtak/`, `webtak/`, read the board API).
-- The repo folder was meant to be renamed `TAK-PluginSuite-CrowdCAD` (Aleph's convention); the
-  rename was blocked by a file lock on 2026-11-09. Docs already use the new name.
+- Repo: github.com/jpat-12/TAK-PluginSuite-CrowdCAD (private); folder renamed to match 2026-11-19.
 
 ## Contracts (change together)
 - **Wire format is IU Event CAD's**, owned by
@@ -31,6 +30,13 @@ Facts an agent needs that the code can't show. Workspace-wide rules: `../CLAUDE.
 - Hook × real infra-TAK: `INFRATAK_REPO=../../infra-TAK <python with flask+psutil> -m unittest discover -s tests -p test_infratak_hook.py`
 - ATAK: `cd atak && JAVA_HOME="C:/Program Files/Android/Android Studio/jbr" ./gradlew assembleCivDebug testCivDebugUnitTest`
   (and `assembleCivRelease`; it needs `bundle.storeArchive.enable=false`, already set).
+  ATAK 5.7 from the same tree: add `-Patak.version=5.7.0` and `-Patak.sdk.path/-Psdk.path/-Ptakdev.plugin`
+  pointing at the 5.7 SDK (README "Build & test"). `-P` beats local.properties, which stays on 5.6.
+  No kotlinx-serialization pin needed (no deps beyond JUnit); add one only if a dep pulls kotlinx in.
+- TAK.gov pipeline zip: `python atak/package-submission.py`. The pipeline gets only the `atak/` Gradle project, so
+  build.gradle prefers `atak/VERSION` (the packager's copy, gitignored) over `../VERSION`, and release signing falls
+  back to `${buildDir}/android_keystore` (takdev's) when there is no `atak.sdk.path`. Verify by unzipping outside the
+  repo and building there. Keep `atak/docs/SUBMISSION.md` (permissions/data answers) true when the manifest changes.
 - WebTAK: `node --test webtak/test/`. CloudTAK: `CLOUDTAK_DIR=… node cloudtak/check-in-cloudtak.mjs`
   (needs a CloudTAK checkout with npm deps installed — not on this machine as of 2026-11-09).
 
