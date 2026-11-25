@@ -12,6 +12,7 @@ import com.atakmap.android.crowdcad.cot.IucadUnit;
 import com.atakmap.android.crowdcad.model.Board;
 import com.atakmap.android.crowdcad.model.Incident;
 import com.atakmap.android.crowdcad.model.IncidentStatus;
+import com.atakmap.android.crowdcad.model.Priority;
 import com.atakmap.android.crowdcad.model.Unit;
 import com.atakmap.android.crowdcad.model.UnitStatus;
 
@@ -146,6 +147,25 @@ public class CotAndBoardTest {
     }
 
     @Test
+    public void floorWhat3wordsAndEstimate() {
+        Incident i = IucadIncident.parse(attrs("v", "1", "id", "CC-9", "status", "NEW", "priority", "2",
+                "created", "1", "updated", "1", "floor", "3", "w3w", "filled.count.soap"), "u", 0, 0, 75.0, NOW);
+        assertEquals("Floor 3", i.floorLabel());
+        assertEquals("filled.count.soap", i.w3w);
+        assertTrue(i.positionIsEstimate());                            // the bridge's map-centre ce
+        assertEquals(3, i.withStaleAt(NOW + 1).floor);                 // survives a heartbeat copy
+        for (String bad : new String[] {"0", "9", "-2", "x"})
+            assertEquals(bad, 0, IucadIncident.parse(attrs("v", "1", "id", "x", "status", "NEW", "priority", "1",
+                    "created", "1", "updated", "1", "floor", bad), "u", 0, 0, NOW).floor);
+        Incident basement = IucadIncident.parse(attrs("v", "1", "id", "x", "status", "NEW", "priority", "1",
+                "created", "1", "updated", "1", "floor", "-1"), "u", 0, 0, 20.0, NOW);
+        assertEquals("Basement", basement.floorLabel());
+        assertFalse(basement.positionIsEstimate());                    // a post: a real place
+        assertFalse(IucadIncident.parse(attrs("v", "1", "id", "x", "status", "NEW", "priority", "1",
+                "created", "1", "updated", "1"), "u", 0, 0, 9999999.0, NOW).positionIsEstimate());   // unknown: no warning
+    }
+
+    @Test
     public void unitRules() {
         assertNull(IucadUnit.parse(attrs("v", "1", "status", "Assigned", "since", "1")));   // never defaulted
         IucadUnit avl = IucadUnit.parse(attrs("v", "1", "status", "AVL", "incident", "CC-1", "since", "5"));
@@ -204,6 +224,35 @@ public class CotAndBoardTest {
         assertEquals("nobody", b.callsign("nobody"));
         assertEquals(0, b.units(NOW + 200).size());
         assertEquals(1, fired[0]);
+    }
+
+    @Test
+    public void priorityColoursMarkers_p1RedP2OrangeP3Yellow() {
+        assertEquals(Priority.P1_RED, Priority.color(1));
+        assertEquals(Priority.P2_ORANGE, Priority.color(2));
+        assertEquals(Priority.P3_YELLOW, Priority.color(3));
+        // parse clamps to 1..3, but the colour map must not depend on that
+        assertEquals(Priority.P1_RED, Priority.color(0));
+        assertEquals(Priority.P3_YELLOW, Priority.color(9));
+    }
+
+    @Test
+    public void iconsetHeader_readsUidAndVersion_rejectsIncomplete() throws Exception {
+        // The real bundled zip, as build_iconset.py wrote it.
+        java.util.zip.ZipFile zip = new java.util.zip.ZipFile(new java.io.File("src/main/assets/" + IconsetInstaller.ASSET));
+        String xml;
+        try (InputStream in = zip.getInputStream(zip.getEntry("iconset.xml"))) {
+            xml = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } finally {
+            zip.close();
+        }
+        IconsetInstaller.Header h = IconsetInstaller.parseHeader(xml);
+        assertNotNull(h);
+        assertEquals("abee9e5e3aec4b62a5bbb27c78fcb9b27e0140919c7ff132c8c6fa41ab2b0c78", h.uid);
+        assertEquals(1, h.version);
+        assertNull(IconsetInstaller.parseHeader("<iconset name=\"x\" version=\"1\">"));    // no uid
+        assertNull(IconsetInstaller.parseHeader("<iconset uid=\"u\" version=\"one\">"));   // bad version
+        assertNull(IconsetInstaller.parseHeader("<other uid=\"u\" version=\"1\">"));
     }
 
     @Test

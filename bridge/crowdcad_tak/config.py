@@ -76,6 +76,9 @@ SECRET_DEFAULTS = {
     # Bearer token for /api/v1/manage/* (create/end events from TAK). CloudTAK's server half only,
     # never the WebTAK bundle (anyone who loads WebTAK could read it there). Empty = disabled.
     "manage_token": "",
+    # what3words API key for the CloudTAK dispatcher's ///word lookups. Stays on the bridge: never
+    # sent to a browser or logged. Empty = the dispatcher's forms offer no what3words.
+    "w3w_api_key": "",
 }
 
 

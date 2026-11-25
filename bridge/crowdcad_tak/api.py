@@ -18,6 +18,7 @@ import json
 import re
 import threading
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import VERSION, board
@@ -105,6 +106,9 @@ def make_server(listen, status, board_source, token, cors_origins=(), manager=No
                 return self._send(200, {"api": board.API_VERSION, "version": VERSION, "name": "CrowdCAD for TAK"})
             if path == "/api/v1/manage/venues":
                 return self._manage(lambda actor: manager.venues())
+            if path == "/api/v1/manage/w3w":
+                query = urllib.parse.parse_qs(self.path.partition("?")[2])
+                return self._manage(lambda actor: manager.w3w(query))
             match = EVENT_PATH.match(path)
             if match and match.group(2) == "/dispatch":
                 return self._manage(lambda actor: manager.view(match.group(1)))
@@ -134,6 +138,9 @@ def make_server(listen, status, board_source, token, cors_origins=(), manager=No
                     (r"^/calls$", lambda m, actor: manager.new_call(eid, self._json_body(), actor)),
                     (rf"^/calls/{CALL_ID}/assign$", lambda m, actor: manager.assign(eid, m.group(1), self._json_body(), actor)),
                     (rf"^/calls/{CALL_ID}/status$", lambda m, actor: manager.status_on_call(eid, m.group(1), self._json_body(), actor)),
+                    (rf"^/calls/{CALL_ID}/details$", lambda m, actor: manager.call_details(eid, m.group(1), self._json_body(), actor)),
+                    (r"^/teams$", lambda m, actor: manager.add_team(eid, self._json_body(), actor)),
+                    (r"^/supervisors$", lambda m, actor: manager.add_supervisor(eid, self._json_body(), actor)),
                     (r"^/units/status$", lambda m, actor: manager.unit_status(eid, self._json_body(), actor)),
                     (r"^/units/post$", lambda m, actor: manager.unit_post(eid, self._json_body(), actor)),
                 ]
@@ -158,5 +165,5 @@ def runner_board(runner, manager=None, field=None):
         return board.build(runner.publisher, int(time.time() * 1000), {
             "crowdcad": status["crowdcad"]["mode"], "tak": status["tak"]["connected"],
             "version": status["version"]}, own_user=manager.pb.user_id if manager else None,
-            heard=field.heard if field else None)
+            heard=field.heard if field else None, positions=field.positions if field else None)
     return source

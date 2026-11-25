@@ -16,6 +16,13 @@ Facts an agent needs that the code can't show. Workspace-wide rules: `../CLAUDE.
   and `webtak/test/board.test.mjs` (which renders a board the Python bridge just built) all pin it.
 - **CrowdCAD's data shape** comes from its `docs/ICD.md` + `src/app/types.ts` (v1.6.0, checked
   2026-11-09). Status lists in `mapping.py` are transcribed from CrowdCAD source (named in comments).
+- **Notes are write-only from TAK** (`bridge/crowdcad_tak/calldetails.py`): the bridge writes one
+  `[TAK] …` line into a call's notes and NEVER reads notes to send anywhere. Board/CoT read TAK details
+  from the bridge's own store (`data_dir/call_details.json`). A map point goes into CrowdCAD's own
+  `location` as "lat, lon", and mapping.py places any call whose location parses that way.
+- **Use CrowdCAD's words** in every client: Calls, Teams, Supervisors, Add Call, Add Team, Add Supervisor,
+  Chief Complaint, Source, Mark as Priority, and CrowdCAD's own status text (board `crowdcadStatus`).
+  Check CrowdCAD's source (components/modals/event/*, dispatch/page.tsx) before naming a new control.
 - **PHI boundary is `mapping.build`.** Never add a Call/Staff field to `Item.fields`/`Item.meta`
   without updating the PHI tests (bridge, board, ATAK fixture). age/gender/notes/log/members never go out.
 
@@ -38,6 +45,8 @@ Facts an agent needs that the code can't show. Workspace-wide rules: `../CLAUDE.
   build.gradle prefers `atak/VERSION` (the packager's copy, gitignored) over `../VERSION`, and release signing falls
   back to `${buildDir}/android_keystore` (takdev's) when there is no `atak.sdk.path`. Verify by unzipping outside the
   repo and building there. Keep `atak/docs/SUBMISSION.md` (permissions/data answers) true when the manifest changes.
+- CloudTAK incident icon: `python cloudtak/make_incident_icon.py` after changing the ATAK drawable
+  `cc_incident_ems.png` (one icon, both clients; don't hand-edit `incident-icon-data.ts`).
 - WebTAK: `node --test webtak/test/board.test.mjs` (Node 22 no longer takes a directory). CloudTAK: `CLOUDTAK_DIR=… node cloudtak/check-in-cloudtak.mjs`
   (needs a CloudTAK checkout with npm deps installed — not on this machine as of 2026-11-09).
 

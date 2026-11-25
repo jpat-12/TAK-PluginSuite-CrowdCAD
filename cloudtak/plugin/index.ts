@@ -1,10 +1,11 @@
 // CrowdCAD for TAK — CloudTAK plugin entry. Lands at <CloudTAK>/api/web/plugins/crowdcad/index.ts
 // (or app/plugins/crowdcad/ on 13.1xx+), found by CloudTAK's `plugins/*/index.ts` build glob.
 //
-// A board of the live CrowdCAD event: open calls (priority first), teams and their
-// status, and anything CrowdCAD couldn't place on the map. Its Dispatch button opens CrowdCAD's own
-// dispatch screen in a floating pane (DispatchFrame.vue), signed in as the dispatcher. The markers themselves arrive as
-// ordinary CoT from TAK Server like every other track — this plugin doesn't draw any.
+// The CrowdCAD dispatcher (CrowdCadPanel.vue): the live event's Calls, Teams and Supervisors in
+// CrowdCAD's own words, a call screen with the units around it and the closest teams to assign,
+// and Add Call / Add Team / Add Supervisor — each written by the bridge with CrowdCAD's own
+// handlers. "CrowdCAD ↗" still opens CrowdCAD's own dispatch screen in a floating pane
+// (DispatchFrame.vue). Markers arrive as ordinary CoT from TAK Server; this plugin draws none.
 //
 // Lifecycle (AGENTS.md §2): routes in install() only; enable()/disable() add/remove just the
 // menu item — disable() runs before the first enable().
@@ -14,7 +15,6 @@ import type { MenuItemConfig, PluginAPI, PluginInstance } from '@tak-ps/cloudtak
 import { IconAmbulance } from '@tabler/icons-vue';
 import CrowdCadPanel from './components/CrowdCadPanel.vue';
 import NewEventPanel from './components/NewEventPanel.vue';
-import DispatchPanel from './components/DispatchPanel.vue';
 import { setPluginApi } from './lib/plugin-api.ts';
 
 const MENU_KEY = 'plugin-crowdcad';
@@ -32,7 +32,6 @@ export default class CrowdCadPlugin implements PluginInstance {
         setPluginApi(api);
         api.routes.add({ path: 'plugin-crowdcad', name: ROUTE_NAME, component: markRaw(CrowdCadPanel) }, 'home-menu');
         api.routes.add({ path: 'plugin-crowdcad-new', name: `${ROUTE_NAME}-new`, component: markRaw(NewEventPanel) }, 'home-menu');
-        api.routes.add({ path: 'plugin-crowdcad-dispatch', name: `${ROUTE_NAME}-dispatch`, component: markRaw(DispatchPanel) }, 'home-menu');
         return new CrowdCadPlugin(api);
     }
 
@@ -41,8 +40,8 @@ export default class CrowdCadPlugin implements PluginInstance {
             key: MENU_KEY,
             label: 'CrowdCAD',
             route: ROUTE_NAME,
-            tooltip: 'Live medical calls and teams',
-            description: 'CrowdCAD board (open calls, team status) and CrowdCAD dispatch',
+            tooltip: 'CrowdCAD dispatch: calls and teams',
+            description: 'CrowdCAD dispatch: Calls, Teams, Add Call, Add Team, units around a call',
             icon: markRaw(IconAmbulance) as unknown as MenuItemConfig['icon'],
         } as MenuItemConfig);
     }

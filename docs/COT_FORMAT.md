@@ -51,13 +51,16 @@ plugin alert that phone.
 | `status` | derived, see below | |
 | `type` | `call.chiefComplaint` | the one clinical field on the wire (see Decisions in README) |
 | `priority` | `call.priority` → `1`, else `2` | CrowdCAD has a flag, not a 1–3 scale |
-| `location` | `call.location` | the post name, as dispatch typed it |
+| `location` | the TAK description (`calldetails.py`) when a dispatcher gave one, else `call.location` | the post name, as dispatch typed it |
 | `reportedBy` | `call.source`, else `CrowdCAD` | |
 | `created` | earliest `call.log[].timestamp`, else first seen | |
 | `updated` | bridge clock when the content changed, strictly increasing, never < `created` | |
 | `assigned` | `call.assignedTeam` → team uids | omitted when empty |
 | point | the post named by `call.location`, see Placement | |
-| `floor`, `w3w`, `notes` | **not sent** | no CrowdCAD source for floor/w3w; notes may hold PHI |
+| `floor` | TAK call details: 1–8, -1 basement; omitted when none | the callsign gains it: `009 · Laceration · F3` |
+| `w3w` | TAK call details, without `///`; omitted when none | |
+| point `ce` | `20` a georeferenced post · `15` a dispatcher's point · `75` the map centre (estimate) | IU reads `ce` as how good the point is |
+| `notes` | **never sent** | notes may hold PHI; TAK details come from the bridge's own store, never from notes |
 
 **Status**, in this order (CrowdCAD shows on-scene/transporting from the teams' statuses,
 not the call's, the same way `dispatch/page.tsx getCallPrimaryStatus` does):
@@ -108,6 +111,9 @@ map image**, and a call or team location is just a post name. So:
 3. `lat = north − y% × (north − south)`, `lon = west + x% × (east − west)`: the exact inverse
    of CrowdCAD's `latLngToPercent` (linear, not Web Mercator; tested).
 4. Fallback: the post's import-time `lat/lng` (stale if the post was dragged later).
+5. Not a post but a coordinate pair (`"39.18200, -86.52550"`): placed there. A TAK dispatcher's
+   map point, what3words, coordinates or map centre writes exactly this into CrowdCAD's own
+   `location` field (`calldetails.py`); a CrowdCAD user typing it works the same.
 
 Anything that can't be placed (free-text location, layer without bounds) is **not sent**,
 and is listed on the console page under "Not on the map", so it's found before game day.

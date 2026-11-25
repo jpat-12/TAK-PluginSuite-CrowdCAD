@@ -6,7 +6,8 @@
 //   board token  → /info, /board                  (read-only board, docs/API.md)
 //   manage token → /venues, /events, /events/:id/end   (New event form: create an event from TAK
 //                  contacts, end one created that way; the bridge's manage.py), and
-//                  /events/:id/dispatch, /calls, /calls/:cid/{assign,status}, /units/{status,post}
+//                  /events/:id/dispatch, /calls, /calls/:cid/{assign,status,details}, /units/{status,post},
+//                  /teams, /supervisors (Add Team / Add Supervisor), /w3w
 //                  (native dispatch: CrowdCAD's own dispatch actions, ported in the bridge's
 //                  dispatch.py and written compare-and-swap). The CloudTAK username goes along as
 //                  X-TAK-User and lands in CrowdCAD's call/team logs ("via CloudTAK: <user>").
@@ -159,11 +160,16 @@ export default async function router(schema: Schema, config: Config) {
         }
     });
 
-    for (const action of ['assign', 'status'] as const) {
+    const CALL_ACTIONS = {
+        assign: ['CrowdCAD Assign Unit', 'Assign a team or supervisor to a call'],
+        status: ['CrowdCAD Unit Status On Call', 'Set a unit’s status on its call (incl. closing it)'],
+        details: ['CrowdCAD Call Details', 'Set a call’s map point (into its CrowdCAD location) and floor / description / what3words (into its notes)'],
+    } as const;
+    for (const action of ['assign', 'status', 'details'] as const) {
         await schema.post(`/plugin-crowdcad/events/:eventid/calls/:callid/${action}`, {
-            name: action === 'assign' ? 'CrowdCAD Assign Unit' : 'CrowdCAD Unit Status On Call',
+            name: CALL_ACTIONS[action][0],
             group: 'PluginCrowdCAD',
-            description: action === 'assign' ? 'Assign a team or supervisor to a call' : 'Set a unit’s status on its call (incl. closing it)',
+            description: CALL_ACTIONS[action][1],
             params: CallParams,
             body: Type.Any(),
             res: Type.Any(),
@@ -194,6 +200,48 @@ export default async function router(schema: Schema, config: Config) {
             }
         });
     }
+
+    // CrowdCAD's Add Team / Add Supervisor (bridge dispatch.py add_team / add_supervisor).
+    for (const kind of ['teams', 'supervisors'] as const) {
+        await schema.post(`/plugin-crowdcad/events/:eventid/${kind}`, {
+            name: kind === 'teams' ? 'CrowdCAD Add Team' : 'CrowdCAD Add Supervisor',
+            group: 'PluginCrowdCAD',
+            description: kind === 'teams' ? 'Add a team to an event (optionally carried by a TAK contact)' : 'Add a supervisor to an event',
+            params: EventParams,
+            body: Type.Any(),
+            res: Type.Any(),
+        }, async (req, res) => {
+            try {
+                const user = await Auth.as_user(config, req);
+                res.json(await relay(`/manage/events/${req.params.eventid}/${kind}`, 'manage', { method: 'POST', body: req.body, user: user.email }));
+            } catch (err) {
+                Err.respond(err, res);
+            }
+        });
+    }
+
+    // what3words lookups for the dispatcher's forms; the API key stays on the bridge.
+    await schema.get('/plugin-crowdcad/w3w', {
+        name: 'CrowdCAD what3words',
+        group: 'PluginCrowdCAD',
+        description: 'what3words ↔ coordinates (bridge-side key); 404 when the bridge has none',
+        query: Type.Object({
+            words: Type.Optional(Type.String({ pattern: '^/{0,3}[A-Za-z]+\\.[A-Za-z]+\\.[A-Za-z]+$'})),
+            lat: Type.Optional(Type.Number({ minimum: -90, maximum: 90 })),
+            lon: Type.Optional(Type.Number({ minimum: -180, maximum: 180 })),
+        }),
+        res: Type.Any(),
+    }, async (req, res) => {
+        try {
+            const user = await Auth.as_user(config, req);
+            const q = new URLSearchParams();
+            if (req.query.words) q.set('words', String(req.query.words));
+            else { q.set('lat', String(req.query.lat)); q.set('lon', String(req.query.lon)); }
+            res.json(await relay(`/manage/w3w?${q.toString()}`, 'manage', { user: user.email }));
+        } catch (err) {
+            Err.respond(err, res);
+        }
+    });
 
     await schema.post('/plugin-crowdcad/events/:eventid/end', {
         name: 'CrowdCAD End Event',

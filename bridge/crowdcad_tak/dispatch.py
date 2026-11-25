@@ -12,6 +12,8 @@ dispatched from CloudTAK is indistinguishable in CrowdCAD from one dispatched th
                   handleSupervisorStatusChange for a supervisor's non-closing status
   unit_status     dispatch/page.tsx handleStatusChange / handleSupervisorStatusChange
   unit_post       dispatch/page.tsx handleLocationChange / handleSupervisorLocationChange
+  add_team        dispatch/page.tsx handleSaveNewTeam (+ components/modals/event/addteammodal.tsx)
+  add_supervisor  dispatch/page.tsx handleSaveNewSupervisor (+ addsupervisormodal.tsx)
 
 Deliberate differences, all because the bridge has no browser state:
 - CrowdCAD keeps each team's status *per call* in React state (teamStatusMap); the record only
@@ -25,6 +27,7 @@ Writes go through store.py (compare-and-swap), never a blind PATCH.
 
 import copy
 import datetime
+import re
 
 try:
     from zoneinfo import ZoneInfo
@@ -408,6 +411,65 @@ def unit_status(event, unit_name, new_status, actor=None, clock=None, clinic_id=
         updated = {**active, "status": status, "log": (active.get("log") or []) + [{"timestamp": clock.ms, "message": message + _via(actor)}]}
         patch["calls"] = _replace(event.get("calls"), lambda c: c.get("id") == active.get("id"), updated)
     return patch
+
+
+TAK_UID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$")   # same rule as manage.UNIT_UID
+
+
+def _new_unit_name(event, name, label):
+    name = _text(name, label, required=True, limit=80)
+    taken = {(u.get("team") or "").strip().lower() for u in (event.get("staff") or []) + (event.get("supervisor") or [])}
+    if name.lower() in taken:
+        # CrowdCAD checks teams and supervisors separately; TAK needs names unique across both
+        # (every dispatch action names its unit), so a clash with either is refused.
+        raise DispatchError(f"A team or supervisor named \"{name}\" already exists.", 409)
+    return name
+
+
+def _tak_uid(form):
+    uid = form.get("takUid") or None
+    if uid is not None and (not isinstance(uid, str) or not TAK_UID.match(uid)):
+        raise DispatchError(f"not a TAK device uid: {uid!r}")
+    return uid
+
+
+def add_team(event, form, actor=None, clock=None):
+    """handleSaveNewTeam. form: {name, members?: [{name, cert, lead?}], takUid?}. takUid: the TAK
+    contact carrying this team (its phone's position is the team's, assignments alert it)."""
+    clock = clock or Clock()
+    if not isinstance(form, dict):
+        raise DispatchError("body must be a JSON object")
+    name = _new_unit_name(event, form.get("name"), "Team Name")
+    members = []
+    for member in form.get("members") or []:
+        if not isinstance(member, dict) or not _text(member.get("name"), "member name", limit=80):
+            continue                                       # CrowdCAD drops rows with no name
+        cert = _text(member.get("cert"), "certification", limit=40)
+        members.append(f"{_text(member.get('name'), 'member name', limit=80)} [{cert}]"
+                       f"{' (Lead)' if member.get('lead') else ''}")
+    entry = {"team": name, "members": members, "status": "Available", "location": "",
+             "log": [{"timestamp": clock.ms, "message": f"Team created{_via(actor)}"}]}
+    uid = _tak_uid(form)
+    if uid:
+        entry["takUid"] = uid
+    return {"staff": (event.get("staff") or []) + [entry]}
+
+
+def add_supervisor(event, form, actor=None, clock=None):
+    """handleSaveNewSupervisor. form: {callSign, cert, name?, takUid?}."""
+    clock = clock or Clock()
+    if not isinstance(form, dict):
+        raise DispatchError("body must be a JSON object")
+    call_sign = _new_unit_name(event, form.get("callSign"), "Supervisor Call Sign")
+    cert = _text(form.get("cert"), "Certification", required=True, limit=40)
+    person = _text(form.get("name"), "name", limit=80)
+    entry = {"team": call_sign, "member": f"{person or 'Supervisor'} [{cert}]", "status": "Available",
+             "location": "Roaming", "originalPost": "Roaming",
+             "log": [{"timestamp": clock.ms, "message": f"{clock.hhmm} - supervisor created{_via(actor)}"}]}
+    uid = _tak_uid(form)
+    if uid:
+        entry["takUid"] = uid
+    return {"supervisor": (event.get("supervisor") or []) + [entry]}
 
 
 def unit_post(event, unit_name, location, actor=None, clock=None):

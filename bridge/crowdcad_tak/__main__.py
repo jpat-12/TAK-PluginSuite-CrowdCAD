@@ -16,6 +16,7 @@ import threading
 
 from . import VERSION, api, config as configuration
 from .bridge import Publisher, Runner
+from .calldetails import CallDetails
 from .fieldstatus import FieldStatus
 from .manage import Manager
 from .pocketbase import PocketBase, PocketBaseError
@@ -40,12 +41,17 @@ def serve(cfg, secrets):
                         lambda: None, secrets.get("board_token"), cfg.get("cors_origins"))
         threading.Event().wait()
     pb, tak = _clients(cfg, secrets)
-    runner = Runner(cfg, pb, tak)
+    data_dir = os.environ.get("CROWDCAD_TAK_DATA_DIR", configuration.DATA_DIR)
+    # TAK-side call details (floor, description, what3words): one store, read by the Publisher
+    # (CoT + board) and written by the manage API (calldetails.py).
+    details = CallDetails(os.path.join(data_dir, "call_details.json"))
+    runner = Runner(cfg, pb, tak, details=details)
     # Its own PocketBase client (same account): HTTP threads never share the runner's.
     manager = Manager(PocketBase(cfg["crowdcad_url"], cfg["crowdcad_identity"], secrets["crowdcad_password"]),
                       cfg.get("crowdcad_app_url"),
                       log=lambda line: print(f"[crowdcad-tak] {line}", file=sys.stderr, flush=True),
-                      timezone=cfg.get("timezone"), layer_bounds=cfg.get("layer_bounds"))
+                      timezone=cfg.get("timezone"), layer_bounds=cfg.get("layer_bounds"),
+                      details=details, w3w_key=secrets.get("w3w_api_key"))
     try:
         manager.pb.ensure_auth()   # learn the bridge's own user id, for the board's `endable`
     except PocketBaseError as error:

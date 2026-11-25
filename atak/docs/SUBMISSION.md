@@ -8,7 +8,7 @@
 | Target ATAK | 5.6.0 (`plugin-api` = `com.atakmap.app@5.6.0.CIV`) |
 | Flavors | civ (default), mil, gov |
 | Build | `./gradlew assembleCivRelease` (JDK 17, Gradle wrapper 8.13, AGP 8.9.0, takdev 3.+) |
-| Unit tests | `./gradlew testCivDebugUnitTest`: 9 JVM tests (parsers, board rules, real bridge output) |
+| Unit tests | `./gradlew testCivDebugUnitTest`: 11 JVM tests (parsers, board rules, priority colours, iconset header, real bridge output) |
 | Obfuscation | R8, `-repackageclasses atakplugin.CrowdCadTAK` (generated from `rootProject.name`) |
 | Runtime dependencies | none; ATAK supplies the API (compileOnly). Test-only: JUnit 4.13.2, org.json 20240303 |
 | Native code | none |
@@ -26,6 +26,8 @@ The plugin:
 - shows a panel: my-status buttons, open incidents (priority first), units. Tapping a card
   centres the map;
 - vibrates, shows a toast and opens the call when an incident is assigned to this device's uid;
+- installs its bundled CrowdCAD iconset (EMS icons) into ATAK's icon library on load. If the
+  import fails it shows a dialog with Retry;
 - adds `__iucad_unit` (this device's status) to its own PLI through
   `CotMapComponent.addAdditionalDetail`, and asks for an immediate report on change.
 
@@ -36,7 +38,7 @@ The plugin:
 | Permissions | `VIBRATE` only (assignment alert). **No `INTERNET`**, location or storage permission |
 | Network | none of its own: all data comes from ATAK's existing TAK Server connection as CoT |
 | Broadcast receivers | registered via ATAK's `DocumentedIntentFilter` / `AtakBroadcast`; no system receivers |
-| Persistence | one SharedPreferences key (`crowdcad.status`, the user's own status) so a restart mid-call keeps it |
+| Persistence | one SharedPreferences key (`crowdcad.status`, the user's own status) so a restart mid-call keeps it; on load it copies its bundled iconset to `atak/tools/crowdcad/CrowdCAD-iconset.zip` and imports it with ATAK's own `ADD_ICONSET` broadcast (skipped when that version is already installed) |
 | Sensitive data | the bridge strips patient details (age, gender, notes, log) before CoT. Incidents carry a chief-complaint string, a post name and status only |
 | Credentials / secrets | none in the plugin or in this source |
 | Exported components | only the standard `com.atakmap.app.component` discovery activity |

@@ -37,6 +37,7 @@ from .dispatch import Clock, DispatchError
 ON_CALL = {"RESP": "En Route", "ONSC": "On Scene", "TRAN": "Transporting"}
 FRESH_MS = 120_000
 EVENT_UID = re.compile(rb'<event\b[^>]*?\buid="([^"]{1,200})"')
+POINT = re.compile(rb'<point\b[^>]*?\blat="(-?[0-9.]{1,20})"[^>]*?\blon="(-?[0-9.]{1,20})"')
 WATCH_REFRESH_S = 10
 
 
@@ -134,6 +135,7 @@ class FieldStatus:
         self.now_ms = now_ms or (lambda: int(time.time() * 1000))
         self.seen = {}                      # device uid → last `since` acted on (or skipped)
         self.heard = {}                     # device uid → ms of its last message of any kind (board "last heard")
+        self.positions = {}                 # device uid → (lat, lon) of its last report with a fix (board radar)
         self._watch, self._watch_at = set(), 0.0
         self.applied = 0
         self.last_error = None
@@ -155,6 +157,14 @@ class FieldStatus:
             uid = found.group(1).decode("utf-8", "replace")
             if uid in self._watched():
                 self.heard[uid] = self.now_ms()
+                point = POINT.search(message[:2000])
+                if point:
+                    try:
+                        lat, lon = float(point.group(1)), float(point.group(2))
+                    except ValueError:
+                        lat = lon = 0.0
+                    if (lat, lon) != (0.0, 0.0) and abs(lat) <= 90 and abs(lon) <= 180:   # 0,0 = no GPS fix yet
+                        self.positions[uid] = (lat, lon)
         if b"__iucad_unit" in message:
             try:
                 self._queue.put_nowait(message)

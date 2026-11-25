@@ -16,8 +16,21 @@ export interface BoardCall {
     assigned: { uid: string | null; callsign: string }[];
     lat: number | null;
     lon: number | null;
+    /** How good the point is: a CrowdCAD post, a point a dispatcher placed, or the map centre. */
+    positionFrom?: 'post' | 'coords' | 'estimate' | null;
     created: number | null;
     updated: number | null;
+    /** CrowdCAD's own call id (dispatch actions) and its #number. */
+    callId?: string | null;
+    number?: number | null;
+    /** CrowdCAD's call status text ("Pending", "Assigned", "En Route", ...). */
+    crowdcadStatus?: string | null;
+    /** TAK details (bridge calldetails.py): 1–8, -1 basement, null none. */
+    floor?: number | null;
+    w3w?: string | null;
+    description?: string | null;
+    /** The call's CrowdCAD `location` field as stored (a post, a place, or "lat, lon"). */
+    callLocation?: string | null;
 }
 
 export interface BoardUnit {
@@ -31,6 +44,8 @@ export interface BoardUnit {
     location: string | null;
     supervisor: boolean;
     device: boolean;
+    /** CrowdCAD's own status text ("Available", "En Route", "On Break", ...). */
+    crowdcadStatus?: string | null;
     lat: number | null;
     lon: number | null;
     since: number | null;
@@ -104,20 +119,6 @@ export interface TakContact {
     role?: string;
 }
 
-export const INCIDENT_LABEL: Record<IncidentStatus, string> = {
-    NEW: 'New', DISP: 'Dispatched', ONSC: 'On scene', TRAN: 'Transporting',
-};
-export const UNIT_LABEL: Record<UnitStatus, string> = {
-    AVL: 'Available', RESP: 'Responding', ONSC: 'On scene', TRAN: 'Transporting', OOS: 'Out of service',
-};
-// Tabler's light badge classes, same meaning on every client: red = needs a unit.
-export const INCIDENT_BADGE: Record<IncidentStatus, string> = {
-    NEW: 'bg-red-lt', DISP: 'bg-orange-lt', ONSC: 'bg-yellow-lt', TRAN: 'bg-blue-lt',
-};
-export const UNIT_BADGE: Record<UnitStatus, string> = {
-    AVL: 'bg-green-lt', RESP: 'bg-orange-lt', ONSC: 'bg-yellow-lt', TRAN: 'bg-blue-lt', OOS: 'bg-secondary-lt',
-};
-
 /** GET /api/plugin-crowdcad/events/:id/dispatch — CrowdCAD's own names for native dispatch. */
 export interface DispatchUnit {
     name: string;
@@ -139,6 +140,8 @@ export interface DispatchCall {
     assigned: string[];
     lat: number | null;
     lon: number | null;
+    /** TAK details from the bridge's store (never read back out of CrowdCAD's notes). */
+    details?: Partial<CallDetails>;
 }
 
 export interface DispatchView {
@@ -153,11 +156,48 @@ export interface DispatchView {
     posts: { name: string; lat: number | null; lon: number | null }[];
     clinics: { id: string; name: string }[];
     statuses: { onCall: string[]; availability: string[] };
+    /** The bridge has a what3words key: offer ///word lookups. */
+    w3w?: boolean;
 }
 
+export type PointSource = 'map' | 'w3w' | 'coords' | 'centre' | 'post';
+
+/** A call's TAK details. The point becomes the call's CrowdCAD location ("lat, lon"); the rest
+ *  goes into one "[TAK] …" line of its notes (bridge calldetails.py). */
+export interface CallDetails {
+    /** A CrowdCAD post: becomes the call's location as-is (instead of a point). */
+    post?: string | null;
+    lat: number | null;
+    lon: number | null;
+    source: PointSource | null;
+    description: string | null;
+    floor: number | null;
+    w3w: string | null;
+}
+
+/** CrowdCAD's Add Call. */
 export interface NewCall {
     location: string;
     chiefComplaint: string;
     priority: boolean;
+    source?: string;
     assign?: string;
+    details?: CallDetails;
 }
+
+/** CrowdCAD's Add Team (members "Name [Cert] (Lead)"), optionally carried by a TAK contact. */
+export interface NewTeam {
+    name: string;
+    members: { name: string; cert: string; lead: boolean }[];
+    takUid?: string;
+}
+
+/** CrowdCAD's Add Supervisor. */
+export interface NewSupervisor {
+    callSign: string;
+    cert: string;
+    name?: string;
+    takUid?: string;
+}
+
+export interface W3w { words: string; lat: number; lon: number; nearestPlace: string }

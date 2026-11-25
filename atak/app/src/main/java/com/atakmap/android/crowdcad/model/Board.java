@@ -91,6 +91,11 @@ public final class Board {
         return out;
     }
 
+    /** The newest copy held for an incident's CoT uid (open or closed), or null. */
+    public synchronized Incident incident(String uid) {
+        return incidents.get(uid);
+    }
+
     /** Unstale units, by callsign. */
     public synchronized List<Unit> units(long now) {
         List<Unit> out = new ArrayList<>();

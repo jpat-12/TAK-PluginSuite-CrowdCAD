@@ -24,6 +24,8 @@ public class CrowdCadMapComponent extends DropDownMapComponent {
     private IncidentHandler incidentHandler;
     private UnitHandler unitHandler;
     private StatusReporter reporter;
+    private IncidentStyler styler;
+    private IconsetInstaller iconset;
 
     @Override
     public void onCreate(Context context, Intent intent, MapView view) {
@@ -32,7 +34,8 @@ public class CrowdCadMapComponent extends DropDownMapComponent {
         board = new Board();
         reporter = new StatusReporter(view, board);
         CrowdCadDropDown dropDown = new CrowdCadDropDown(view, context, board, reporter);
-        incidentHandler = new IncidentHandler(board, incident -> alertAssigned(view, dropDown, incident));
+        styler = new IncidentStyler(context, view);
+        incidentHandler = new IncidentHandler(board, incident -> alertAssigned(view, dropDown, incident), styler);
         unitHandler = new UnitHandler(board);
         CotDetailManager.getInstance().registerHandler(incidentHandler);
         CotDetailManager.getInstance().registerHandler(unitHandler);
@@ -41,6 +44,8 @@ public class CrowdCadMapComponent extends DropDownMapComponent {
         filter.addAction(CrowdCadDropDown.SHOW_PLUGIN, "Show the CrowdCAD board");
         registerDropDownReceiver(dropDown, filter);
         reporter.start();
+        iconset = new IconsetInstaller(context, view);
+        iconset.start();
     }
 
     /** UI thread. Loud on purpose: an assignment a medic doesn't notice is a patient waiting. */
@@ -62,6 +67,10 @@ public class CrowdCadMapComponent extends DropDownMapComponent {
             CotDetailManager.getInstance().unregisterHandler(incidentHandler);
         if (unitHandler != null)
             CotDetailManager.getInstance().unregisterHandler(unitHandler);
+        if (styler != null)
+            styler.stop();
+        if (iconset != null)
+            iconset.stop();
         super.onDestroyImpl(context, view);
     }
 }

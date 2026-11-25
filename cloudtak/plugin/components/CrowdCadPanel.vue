@@ -1,42 +1,89 @@
 <template>
-    <MenuTemplate name='CrowdCAD'>
-        <div class='px-2 py-2'>
-            <div
-                v-if='actionError'
-                class='alert alert-danger py-2 mb-2 small d-flex align-items-start'
-                role='alert'
-            >
-                <span class='flex-grow-1'>{{ actionError }}</span>
-                <button
-                    type='button'
-                    class='btn-close ms-2'
-                    aria-label='Dismiss'
-                    @click='actionError = null'
-                />
-            </div>
-            <div
-                v-if='error'
-                class='alert alert-danger py-2 mb-2 small'
-            >
-                {{ error }}
-            </div>
-            <div
-                v-if='bridgeWarning'
-                class='alert alert-warning py-2 mb-2 small'
-            >
-                {{ bridgeWarning }}
-            </div>
+    <MenuTemplate name='CrowdCAD Dispatch'>
+        <div
+            v-if='store.actionError'
+            class='alert alert-danger py-2 mx-2 mt-2 mb-0 small d-flex align-items-start'
+            role='alert'
+        >
+            <span class='flex-grow-1'>{{ store.actionError }}</span>
+            <button
+                type='button'
+                class='btn-close ms-2'
+                aria-label='Dismiss'
+                @click='store.actionError = null'
+            />
+        </div>
+        <div
+            v-if='store.error'
+            class='alert alert-danger py-2 mx-2 mt-2 mb-0 small'
+        >
+            {{ store.error }}
+        </div>
+        <div
+            v-if='bridgeWarning'
+            class='alert alert-warning py-2 mx-2 mt-2 mb-0 small'
+        >
+            {{ bridgeWarning }}
+        </div>
 
+        <!-- ═══════════ CALL ═══════════ -->
+        <template v-if='view.screen === "call" && event'>
+            <CallDetail
+                v-if='activeCall'
+                :call='activeCall'
+                :event='event'
+                :view='dispatchView'
+                @close='show("board")'
+            />
+            <div
+                v-else
+                class='px-2 py-2'
+            >
+                <button
+                    class='btn btn-sm btn-outline-secondary mb-2'
+                    @click='show("board")'
+                >
+                    ◀ Board
+                </button>
+                <div class='small text-secondary'>
+                    That call is closed or no longer on the board.
+                </div>
+            </div>
+        </template>
+
+        <!-- ═══════════ ADD CALL / ADD TEAM / ADD SUPERVISOR ═══════════ -->
+        <AddCallForm
+            v-else-if='view.screen === "add-call" && event && dispatchView'
+            :event-id='event.id'
+            :view='dispatchView'
+            @close='show("board")'
+            @created='openCreated'
+        />
+        <AddUnitForm
+            v-else-if='(view.screen === "add-team" || view.screen === "add-supervisor") && event && dispatchView'
+            :key='view.screen'
+            :event-id='event.id'
+            :view='dispatchView'
+            :kind='view.screen === "add-team" ? "team" : "supervisor"'
+            @close='show("board")'
+            @added='show("board")'
+        />
+
+        <!-- ═══════════ BOARD ═══════════ -->
+        <div
+            v-else
+            class='px-2 py-2'
+        >
             <!-- Event picker + New event -->
             <div class='d-flex align-items-center gap-2 mb-2'>
                 <select
-                    v-if='board && board.events.length'
-                    v-model='eventId'
+                    v-if='store.board && store.board.events.length'
+                    v-model='store.eventId'
                     class='form-select form-select-sm flex-grow-1'
                     aria-label='CrowdCAD event'
                 >
                     <option
-                        v-for='e in board.events'
+                        v-for='e in store.board.events'
                         :key='e.id'
                         :value='e.id'
                     >
@@ -47,16 +94,16 @@
                     v-else
                     class='small text-secondary flex-grow-1'
                 >
-                    {{ board ? 'No live CrowdCAD event.' : 'Connecting to the CrowdCAD bridge…' }}
+                    {{ store.board ? 'No live CrowdCAD event.' : 'Connecting to the CrowdCAD bridge…' }}
                     <a
-                        v-if='board && board.crowdcadUrl'
-                        :href='board.crowdcadUrl'
+                        v-if='store.board && store.board.crowdcadUrl'
+                        :href='store.board.crowdcadUrl'
                         target='_blank'
                         rel='noopener'
                     >Open CrowdCAD ↗</a>
                 </span>
                 <button
-                    v-if='manage'
+                    v-if='store.manage'
                     class='btn btn-sm btn-outline-primary text-nowrap'
                     title='Create a CrowdCAD event with TAK contacts as its teams and supervisors'
                     @click='router.push({ name: "home-menu-plugin-crowdcad-new" })'
@@ -66,212 +113,220 @@
             </div>
 
             <template v-if='event'>
-                <!-- Event header -->
-                <div class='card card-sm mb-3'>
-                    <div class='card-body py-2'>
-                        <div class='d-flex align-items-center'>
-                            <div class='flex-grow-1 text-truncate'>
-                                <div class='fw-bold text-truncate'>
-                                    {{ event.name }}
-                                </div>
-                                <div class='small text-secondary'>
-                                    {{ event.calls.length }} open {{ event.calls.length === 1 ? 'call' : 'calls' }}
-                                    · {{ event.units.length }} {{ event.units.length === 1 ? 'unit' : 'units' }}
-                                    <template v-if='event.endable'>
-                                        · created from TAK
-                                    </template>
-                                </div>
-                            </div>
-                        </div>
-                        <div class='d-flex gap-1 mt-2'>
-                            <button
-                                v-if='manage'
-                                class='btn btn-sm btn-primary flex-grow-1'
-                                title='Dispatch this event from CloudTAK'
-                                @click='router.push({ name: "home-menu-plugin-crowdcad-dispatch", query: { event: event.id } })'
-                            >
-                                Dispatch
-                            </button>
-                            <button
-                                v-if='event.dispatchUrl'
-                                class='btn btn-sm'
-                                :class='manage ? "btn-outline-secondary" : "btn-primary flex-grow-1"'
-                                title='Open CrowdCAD’s own dispatch screen for this event'
-                                @click='openDispatch(event.dispatchUrl, event.name)'
-                            >
-                                {{ manage ? 'CrowdCAD ↗' : 'Dispatch' }}
-                            </button>
-                            <button
-                                v-if='manage && event.endable'
-                                class='btn btn-sm btn-outline-danger'
-                                :disabled='ending'
-                                title='End this event (created from TAK) for everyone'
-                                @click='endEvent(event.id, event.name)'
-                            >
-                                End
-                            </button>
-                        </div>
-                    </div>
+                <div
+                    v-if='dispatchView && !dispatchView.ended && !dispatchView.canDispatch'
+                    class='alert alert-warning py-2 mb-2 small'
+                >
+                    {{ dispatchView.whyNot }}
+                </div>
+                <div class='d-flex gap-1 mb-2'>
+                    <button
+                        v-if='event.dispatchUrl'
+                        class='btn btn-sm btn-outline-secondary'
+                        title='Open CrowdCAD’s own dispatch screen for this event'
+                        @click='openCrowdcad'
+                    >
+                        CrowdCAD ↗
+                    </button>
+                    <button
+                        v-if='store.manage && event.endable'
+                        class='btn btn-sm btn-outline-danger ms-auto'
+                        :disabled='ending'
+                        title='End this event (created from TAK) for everyone'
+                        @click='endEvent(event.id, event.name)'
+                    >
+                        End Event
+                    </button>
+                </div>
+
+                <!-- Unit status filter: counts per status, tap to show only those -->
+                <div class='d-flex gap-1 mb-1'>
+                    <button
+                        v-for='(def, code) in UNIT_STATUS'
+                        :key='code'
+                        class='crowdcad-sum flex-fill'
+                        :class='{ on: view.filter === code }'
+                        :style='view.filter === code ? `background:${def.color};border-color:${def.color}` : `border-color:${def.color}`'
+                        :title='(view.filter === code ? "Showing only " : "Show only ") + def.label'
+                        @click='store.view.filter = view.filter === code ? null : code'
+                    >
+                        {{ def.letter }} {{ countByStatus[code] ?? 0 }}
+                    </button>
                 </div>
 
                 <!-- Calls -->
-                <div class='subheader mb-1'>
-                    Open calls
+                <div class='subheader mt-2 mb-1 d-flex align-items-center'>
+                    <span>Calls ({{ calls.length }})</span>
+                    <button
+                        v-if='canDispatch'
+                        class='btn btn-sm btn-primary ms-auto py-0'
+                        @click='show("add-call")'
+                    >
+                        + Add Call
+                    </button>
                 </div>
                 <div
-                    v-if='!event.calls.length'
-                    class='small text-secondary mb-3'
+                    v-if='!calls.length'
+                    class='small text-secondary mb-2'
                 >
                     No open calls.
                 </div>
                 <div
-                    v-for='c in event.calls'
-                    :key='c.uid || c.id'
-                    class='card card-sm mb-1'
-                    :class='{ "cursor-pointer": c.lat !== null && c.lon !== null }'
-                    :title='c.lat !== null ? "Show " + c.id + " on the map" : "Not on the map: its location isn’t a post on a mapped venue layer"'
-                    @click='zoomTo(c.lon, c.lat)'
+                    v-for='c in calls'
+                    :key='c.uid || c.callId || c.id'
+                    class='d-flex align-items-center gap-2 py-1 border-bottom cursor-pointer'
+                    @click='openCall(c)'
                 >
-                    <div class='card-body py-2'>
-                        <div class='d-flex align-items-center gap-1'>
-                            <span
-                                v-if='c.priority === 1'
-                                class='badge bg-red text-white'
-                            >P1</span>
-                            <strong>{{ c.id }}</strong>
-                            <span class='text-truncate'>{{ c.type }}</span>
-                            <span
-                                class='badge ms-auto text-nowrap'
-                                :class='c.status ? INCIDENT_BADGE[c.status] : "bg-secondary-lt"'
-                            >{{ c.status ? INCIDENT_LABEL[c.status] : '—' }}</span>
-                        </div>
-                        <div class='small text-secondary d-flex align-items-center gap-1 mt-1'>
-                            <span class='text-truncate'>
-                                {{ c.location || 'No location' }}<template v-if='c.created'> · {{ age(c.created) }}</template>
-                                ·
-                                <template v-if='c.assigned.length'>{{ c.assigned.map((a) => a.callsign).join(', ') }}</template>
-                                <span
-                                    v-else
-                                    class='text-danger'
-                                >no unit</span>
-                            </span>
-                            <span
-                                v-if='c.placed === false'
-                                class='badge bg-yellow-lt ms-auto text-nowrap'
-                            >not on map</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Units -->
-                <div class='subheader mt-3 mb-1'>
-                    Units
-                </div>
-                <div
-                    v-if='!event.units.length'
-                    class='small text-secondary mb-2'
-                >
-                    No units in this event.
-                </div>
-                <div
-                    v-for='u in event.units'
-                    :key='u.callsign'
-                    class='d-flex align-items-center gap-2 py-1 border-bottom'
-                    :class='{ "cursor-pointer": u.lat !== null && u.lon !== null }'
-                    @click='zoomTo(u.lon, u.lat)'
-                >
+                    <IncidentIcon :priority='c.priority' />
                     <div class='flex-grow-1 text-truncate'>
                         <div class='text-truncate'>
-                            {{ u.callsign }}
-                            <span
-                                v-if='u.supervisor'
-                                class='text-secondary small'
-                            >supervisor</span>
+                            <strong>{{ callNumber(c) }}</strong> {{ headline(c) }}
                         </div>
                         <div class='small text-secondary text-truncate'>
-                            {{ u.incident || u.location || '—' }}
-                            <template v-if='u.device'>
-                                ·
-                                <span
-                                    v-if='u.lastHeard'
-                                    :title='"Last report from " + u.uid'
-                                >📡 {{ heardAgo(u.lastHeard) }}</span>
-                                <span
-                                    v-else
-                                    class='text-warning'
-                                    :title='"No reports from " + u.uid + " reach the CrowdCAD bridge. Its ATAK status taps can’t update CrowdCAD until the device is connected and in the same TAK group as the bridge."'
-                                >📡 no reports</span>
+                            {{ ago(store.now - (c.created ?? store.now)) }} ·
+                            <template v-if='c.assigned.length'>
+                                {{ c.assigned.map((a) => a.callsign).join(', ') }}
                             </template>
-                            <template v-else-if='u.placed === false'>
-                                · <span class='text-warning'>not on map</span>
-                            </template>
+                            <span
+                                v-else
+                                class='text-danger'
+                            >no team</span>
+                            <span
+                                v-if='c.placed === false || c.lat === null'
+                                class='text-warning'
+                            > · not on map</span>
                         </div>
                     </div>
                     <span
-                        class='badge text-nowrap'
-                        :class='u.status ? UNIT_BADGE[u.status] : "bg-secondary-lt"'
-                    >{{ u.status ? UNIT_LABEL[u.status] : '—' }}</span>
+                        class='crowdcad-chip'
+                        :style='`background:${callStatus(c).color}`'
+                    >{{ callStatus(c).label }}</span>
                 </div>
 
-                <div
-                    v-if='unplacedCount'
-                    class='small text-warning mt-2'
+                <!-- Teams, then Supervisors (CrowdCAD's own split) -->
+                <template
+                    v-for='group in groups'
+                    :key='group.title'
                 >
-                    {{ unplacedCount }} not on the map: their location isn’t a post on a GeoJSON-imported venue layer.
-                </div>
+                    <div class='subheader mt-3 mb-1 d-flex align-items-center'>
+                        <span>{{ group.title }} ({{ group.units.length }})</span>
+                        <button
+                            v-if='canDispatch'
+                            class='btn btn-sm btn-outline-primary ms-auto py-0'
+                            @click='show(group.add)'
+                        >
+                            + {{ group.addLabel }}
+                        </button>
+                    </div>
+                    <div
+                        v-if='!group.units.length'
+                        class='small text-secondary'
+                    >
+                        {{ view.filter ? 'None with this status.' : 'None yet.' }}
+                    </div>
+                    <div
+                        v-for='u in group.units'
+                        :key='u.callsign'
+                        class='d-flex align-items-center gap-2 py-1 border-bottom'
+                        :class='{ "cursor-pointer": hasPosition(u) }'
+                        @click='hasPosition(u) && flyTo(u.lat, u.lon)'
+                    >
+                        <UnitBadge
+                            :def='unitStatus(u)'
+                            :stale='isStale(u, store.now)'
+                        />
+                        <div class='flex-grow-1 text-truncate'>
+                            <div class='text-truncate'>
+                                {{ u.callsign }}
+                            </div>
+                            <div class='small text-secondary text-truncate'>
+                                {{ unitStatus(u).label }}<template v-if='u.incident'>
+                                    · {{ u.incident }}
+                                </template><template v-else-if='u.location'>
+                                    · {{ u.location }}
+                                </template>
+                                <template v-if='u.device'>
+                                    ·
+                                    <span
+                                        v-if='u.lastHeard'
+                                        :class='{ "text-warning": isStale(u, store.now) }'
+                                        :title='"Last report from " + u.uid'
+                                    >📡 {{ ago(store.now - u.lastHeard) }} ago</span>
+                                    <span
+                                        v-else
+                                        class='text-warning'
+                                        :title='"No reports from " + u.uid + " reach the CrowdCAD bridge. Its ATAK status taps can’t update CrowdCAD until the device is connected and in the same TAK group as the bridge."'
+                                    >📡 no reports</span>
+                                </template>
+                                <span
+                                    v-else-if='!hasPosition(u)'
+                                    class='text-warning'
+                                > · not on map</span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
             </template>
 
             <div
-                v-if='board'
+                v-if='store.board'
                 class='text-secondary small mt-3'
             >
-                Updated {{ age(board.generated) }} ago
+                Updated {{ ago(store.now - store.board.generated) }} ago
             </div>
         </div>
     </MenuTemplate>
 </template>
 
 <script setup lang='ts'>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import MenuTemplate from '../../../src/components/CloudTAK/util/MenuTemplate.vue';
-import * as crowdcad from '../lib/client.ts';
+// The CrowdCAD dispatcher inside CloudTAK: the event's Calls, Teams and Supervisors (CrowdCAD's
+// own words), one call at a time with units around it, and Add Call / Add Team / Add Supervisor.
+// Without the bridge's manage token on this CloudTAK it's the same board, read-only.
+// Everything shown comes from the bridge (lib/store.ts); every button is one bridge action.
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import MenuTemplate from '../../../src/components/CloudTAK/util/MenuTemplate.vue';
+import AddCallForm from './AddCallForm.vue';
+import AddUnitForm from './AddUnitForm.vue';
+import CallDetail from './CallDetail.vue';
+import IncidentIcon from './IncidentIcon.vue';
+import UnitBadge from './UnitBadge.vue';
+import * as crowdcad from '../lib/client.ts';
+import {
+    UNIT_STATUS, ago, callNumber, callStatus, hasPosition, headline, isStale, sortCalls, unitStatus,
+} from '../lib/core.ts';
 import { openDispatch } from '../lib/dispatch.ts';
-import { pluginApi } from '../lib/plugin-api.ts';
-import { INCIDENT_BADGE, INCIDENT_LABEL, UNIT_BADGE, UNIT_LABEL, type Board, type BoardEvent } from '../lib/types.ts';
-
-const POLL_MS = 5000;
+import { flyTo } from '../lib/map-pick.ts';
+import { act, currentEvent, refresh, start, stop, store, type Screen } from '../lib/store.ts';
+import type { BoardCall, BoardEvent } from '../lib/types.ts';
 
 const router = useRouter();
-const manage = ref(false);   // this CloudTAK can create/end events and dispatch (bridge manage token configured)
 const ending = ref(false);
-const actionError = ref<string | null>(null);   // a refused End: stays until dismissed
 
-const board = ref<Board | null>(null);
-const error = ref<string | null>(null);
-const eventId = ref('');
-const now = ref(Date.now());
-let timer: ReturnType<typeof setInterval> | null = null;
+const view = computed(() => store.view);
+const event = computed(() => currentEvent());
+const dispatchView = computed(() => (store.dispatch && store.dispatch.id === event.value?.id ? store.dispatch : null));
+const canDispatch = computed(() => Boolean(store.manage && dispatchView.value?.canDispatch && !dispatchView.value.ended));
 
-const event = computed(() => {
-    const events = board.value?.events ?? [];
-    return events.find((e) => e.id === eventId.value) ?? events[0] ?? null;
+const calls = computed(() => sortCalls(event.value?.calls ?? []));
+const activeCall = computed(() => calls.value.find((c) => (c.uid || c.callId || c.id) === view.value.callUid) ?? null);
+
+const countByStatus = computed(() => {
+    const counts: Record<string, number> = {};
+    for (const u of event.value?.units ?? []) if (u.status) counts[u.status] = (counts[u.status] ?? 0) + 1;
+    return counts;
 });
 
-// Keep the picker showing a real choice (a blank select hides which event the board is for).
-watch(board, (b) => {
-    const events = b?.events ?? [];
-    if (events.length && !events.some((e) => e.id === eventId.value)) eventId.value = events[0].id;
-});
-
-const unplacedCount = computed(() => {
-    const e = event.value;
-    if (!e) return 0;
-    return e.calls.filter((c) => c.placed === false).length + e.units.filter((u) => u.placed === false && !u.device).length;
+const groups = computed(() => {
+    const units = (event.value?.units ?? []).filter((u) => !view.value.filter || u.status === view.value.filter);
+    return [
+        { title: 'Teams', add: 'add-team' as Screen, addLabel: 'Add Team', units: units.filter((u) => !u.supervisor) },
+        { title: 'Supervisors', add: 'add-supervisor' as Screen, addLabel: 'Add Supervisor', units: units.filter((u) => u.supervisor) },
+    ];
 });
 
 const bridgeWarning = computed(() => {
-    const bridge = board.value?.bridge;
+    const bridge = store.board?.bridge;
     if (!bridge) return null;
     if (bridge.crowdcad === 'down') return 'The bridge can’t reach CrowdCAD — this board may be out of date.';
     if (bridge.crowdcad === 'polling') return 'CrowdCAD realtime unavailable — updates every ~30 s.';
@@ -279,7 +334,7 @@ const bridgeWarning = computed(() => {
     return null;
 });
 
-// "IU Football · Nov 21 · TAK": same-named events must be tellable apart.
+// "Homecoming · Nov 21 · TAK · 3 calls": same-named events must be tellable apart.
 function eventLabel(e: BoardEvent): string {
     const parts = [e.name];
     if (e.date) {
@@ -287,71 +342,52 @@ function eventLabel(e: BoardEvent): string {
         if (!Number.isNaN(d.getTime())) parts.push(d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' }));
     }
     if (e.endable) parts.push('TAK');
-    const n = e.calls.length;
-    parts.push(`${n} ${n === 1 ? 'call' : 'calls'}`);
+    parts.push(`${e.calls.length} ${e.calls.length === 1 ? 'call' : 'calls'}`);
     return parts.join(' · ');
 }
 
-function errorText(err: unknown): string {
-    return err instanceof Error ? err.message : String(err);
+function show(screen: Screen): void {
+    store.view = { screen, callUid: null, filter: view.value.filter };
 }
 
-function age(ms: number): string {
-    const minutes = Math.max(0, Math.floor((now.value - ms) / 60000));
-    return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}`;
+function openCall(c: BoardCall): void {
+    store.view = { screen: 'call', callUid: c.uid || c.callId || c.id, filter: view.value.filter };
 }
 
-function heardAgo(ms: number): string {
-    const seconds = Math.max(0, Math.floor((now.value - ms) / 1000));
-    return seconds < 90 ? `${seconds}s ago` : `${age(ms)} ago`;
+// A new call appears on the board on the next refresh; open it once it's there.
+function openCreated(callId: string | null): void {
+    const c = callId ? calls.value.find((x) => x.callId === callId) : undefined;
+    if (c) openCall(c);
+    else show('board');
 }
 
-function zoomTo(lon: number | null, lat: number | null): void {
-    if (lon === null || lat === null) return;
-    pluginApi().map.flyTo({ center: [lon, lat], zoom: Math.max(pluginApi().map.getZoom(), 17) });
+// CrowdCAD's own dispatch screen for this event, in a floating pane.
+function openCrowdcad(): void {
+    const e = event.value;
+    if (e?.dispatchUrl) openDispatch(e.dispatchUrl, e.name);
 }
 
 async function endEvent(id: string, name: string): Promise<void> {
     if (!window.confirm(`End “${name}” for everyone? Its calls and teams leave every TAK map and board.`)) return;
     ending.value = true;
-    actionError.value = null;
-    try {
-        await crowdcad.endEvent(id);
-        await refresh();
-    } catch (err) {
-        actionError.value = errorText(err);
-    } finally {
-        ending.value = false;
-    }
-}
-
-async function refresh(): Promise<void> {
-    try {
-        board.value = await crowdcad.board();
-        error.value = null;
-    } catch (err) {
-        error.value = errorText(err);   // keep showing the last good board under the error
-    }
-    now.value = Date.now();
+    await act(() => crowdcad.endEvent(id));
+    ending.value = false;
 }
 
 onMounted(async () => {
-    try {
-        const info = await crowdcad.info();
-        manage.value = Boolean(info.manage);
-        if (Math.floor(info.api) !== crowdcad.SUPPORTED_API) {
-            error.value = `The CrowdCAD bridge speaks API v${info.api}; this plugin needs v${crowdcad.SUPPORTED_API}. Update one of them.`;
-            return;
-        }
-    } catch (err) {
-        error.value = errorText(err);
-        return;
-    }
+    await start();
     await refresh();
-    timer = setInterval(() => void refresh(), POLL_MS);
 });
 
-onUnmounted(() => {
-    if (timer) clearInterval(timer);
-});
+onUnmounted(() => stop());
 </script>
+
+<style scoped>
+/* Dark until picked; a picked filter fills with its status colour so it can't be missed. */
+.crowdcad-sum {
+    background:transparent; color:inherit; border:2px solid; border-radius:4px;
+    padding:4px 0; font-weight:600; cursor:pointer; font-size:13px;
+}
+.crowdcad-sum.on { color:#000; font-weight:800; }
+.crowdcad-chip { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; font-weight:700; color:#000; white-space:nowrap; }
+</style>

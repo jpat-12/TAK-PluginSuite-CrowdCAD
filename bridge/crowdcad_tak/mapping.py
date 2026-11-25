@@ -13,7 +13,7 @@ rendered XML.
 import re
 from dataclasses import dataclass, field
 
-from . import geo
+from . import calldetails, geo
 
 # CrowdCAD's own list of call statuses that end a call (src/lib/clinics.ts
 # RESOLVED_CALL_STATUSES). Kept verbatim; a new CrowdCAD outcome missing here would keep a
@@ -158,6 +158,7 @@ def device_teams(event, config):
         name = team.get("team")
         if name in team_uids:
             out.append({"name": name, "uid": team_uids[name], "status": UNIT_STATUS.get(team.get("status") or ""),
+                        "crowdcadStatus": team.get("status") or "",
                         "incident": incidents.get(name), "location": team.get("location") or "",
                         "supervisor": "member" in team,
                         "since": team.get("statusSince") if isinstance(team.get("statusSince"), (int, float)) else None})
@@ -177,8 +178,19 @@ def free_units(event, config):
             if t.get("team") and t["team"] not in bound]
 
 
-def build(event, config):
-    """→ (items: {uid: Item}, unplaced: [Unplaced]) for one event record."""
+# How good an incident's point is, as CoT `ce` metres (IU Event CAD's COT_FORMAT.md reads `ce`
+# this way): a georeferenced post, a point a dispatcher picked/typed, the map centre (estimate).
+POSITION_CE = {"post": 20.0, "coords": 15.0, "estimate": 75.0}
+
+
+def _floor_short(floor):
+    return "B" if floor == calldetails.FLOOR_BASEMENT else f"F{floor}"
+
+
+def build(event, config, details=None):
+    """→ (items: {uid: Item}, unplaced: [Unplaced]) for one event record.
+    details: call id → TAK call details (calldetails.CallDetails.for_event), or None."""
+    details = details or {}
     eid = event.get("id") or "event"
     prefix = event_prefix(eid)
     publish = config.get("publish") or {}
@@ -208,15 +220,32 @@ def build(event, config):
             closed = status in ("CLOSED", "CXL")
             iid = incident_id(call, id_prefix)
             assigned = [t for t in call.get("assignedTeam") or [] if t]
+            # TAK details (calldetails.py) come from the bridge's own store, never from notes.
+            extra = details.get(call.get("id")) or {}
+            floor = extra.get("floor") or None
             where = geo.post_location(call.get("location"), event, overrides)
+            position_from = "post"
+            if not where:
+                # A TAK dispatcher's point is the call's own CrowdCAD location, "lat, lon".
+                coords = calldetails.parse_coords(call.get("location"))
+                if coords:
+                    where = (coords[0], coords[1], "")
+                    position_from = "estimate" if extra.get("source") == "centre" else "coords"
             label = f"{iid[len(id_prefix) + 1:]} · {call.get('chiefComplaint') or 'Call'}"
+            if floor:
+                label += f" · {_floor_short(floor)}"     # IU's rule: the callsign carries the floor
+            location = extra.get("description") or call.get("location") or ""
             times = _log_times(call.get("log"))
+            board = {"callId": call.get("id"), "number": call.get("order"), "floor": floor,
+                     "crowdcadStatus": call.get("status") or "",
+                     "w3w": extra.get("w3w"), "description": extra.get("description"),
+                     "callLocation": call.get("location") or ""}
             if not where:
                 if not closed:
-                    unplaced.append(Unplaced("call", label, call.get("location") or "", {
+                    unplaced.append(Unplaced("call", label, location, {
                         "id": iid, "status": status, "type": call.get("chiefComplaint") or "Unknown",
                         "priority": 1 if call.get("priority") else 2, "reportedBy": call.get("source") or "CrowdCAD",
-                        "assigned": assigned, "created": min(times) if times else None}))
+                        "assigned": assigned, "created": min(times) if times else None, **board}))
                 continue
             # Incident fields — the complete list of what leaves CrowdCAD for a call.
             fields = {
@@ -225,15 +254,20 @@ def build(event, config):
                 "status": status,
                 "type": call.get("chiefComplaint") or "Unknown",
                 "priority": 1 if call.get("priority") else 2,
-                "location": call.get("location") or "",
+                "location": location,
                 "reportedBy": call.get("source") or "CrowdCAD",
                 "assigned": ",".join(team_uid(t) for t in assigned),
                 "layer": where[2],
+                "ce": POSITION_CE[position_from],
             }
+            if floor:
+                fields["floor"] = floor
+            if extra.get("w3w"):
+                fields["w3w"] = extra["w3w"]
             uid = f"{prefix}-call-{slug(call.get('id') or iid)}"
             items[uid] = Item(uid, "incident", where[0], where[1], fields, closed=closed,
                               created_ms=min(times) if times else None,
-                              meta={"assigned_teams": assigned, "event": eid})
+                              meta={"assigned_teams": assigned, "event": eid, "positionFrom": position_from, **board})
 
     if publish.get("teams", True):
         for team in teams:
@@ -245,6 +279,7 @@ def build(event, config):
                 if not ended:
                     unplaced.append(Unplaced("team", name, team.get("location") or "", {
                         "status": UNIT_STATUS.get(team.get("status") or ""), "incident": team_incident.get(name),
+                        "crowdcadStatus": team.get("status") or "",
                         "supervisor": "member" in team,
                         "since": team.get("statusSince") if isinstance(team.get("statusSince"), (int, float)) else None}))
                 continue
@@ -254,7 +289,8 @@ def build(event, config):
                       "since": team.get("statusSince") if isinstance(team.get("statusSince"), (int, float)) else None,
                       "supervisor": "member" in team}
             uid = team_uid(name)
-            items[uid] = Item(uid, "unit", where[0], where[1], fields, closed=ended)
+            items[uid] = Item(uid, "unit", where[0], where[1], fields, closed=ended,
+                              meta={"crowdcadStatus": team.get("status") or ""})
 
     if publish.get("zones", True):
         for layer, zone, shape in geo.zone_shapes(event, overrides):

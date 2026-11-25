@@ -30,10 +30,11 @@ def _fingerprint(item):
 
 
 class Publisher:
-    def __init__(self, config, send, clock_ms=lambda: int(time.time() * 1000)):
+    def __init__(self, config, send, clock_ms=lambda: int(time.time() * 1000), details=None):
         self.config = config
         self.send = send
         self.clock_ms = clock_ms
+        self.details = details   # calldetails.CallDetails: TAK-side floor/description/what3words, or None
         self.sent = {}     # CoT uid → {event, item, fp, created, updated, done}
         self.events = {}   # event id → {name, unplaced, counts}
         self.lock = threading.RLock()
@@ -52,7 +53,8 @@ class Publisher:
         """Publish one event record's current state. Returns the number of messages sent."""
         with self.lock:
             eid = record.get("id")
-            items, unplaced = mapping.build(record, self.config)
+            extra = self.details.for_event(eid) if self.details else None
+            items, unplaced = mapping.build(record, self.config, extra)
             now = self.clock_ms()
             count = 0
             for uid, item in items.items():
@@ -144,11 +146,11 @@ class Publisher:
 class Runner:
     """Threads and IO: PocketBase realtime (with polling fallback), TAK writer, heartbeat."""
 
-    def __init__(self, config, pocketbase, tak):
+    def __init__(self, config, pocketbase, tak, details=None):
         self.config = config
         self.pb = pocketbase
         self.tak = tak
-        self.publisher = Publisher(config, tak.send)
+        self.publisher = Publisher(config, tak.send, details=details)
         tak.on_connect = self.publisher.heartbeat   # a fresh TAK connection gets the whole picture
         self.crowdcad = {"mode": "starting", "last_error": None, "last_sync": None}
         self._stop = threading.Event()

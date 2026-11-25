@@ -294,9 +294,9 @@ board. **After the event:** end it in CrowdCAD and everything closes the same wa
 | Part | Command | Gate |
 |---|---|---|
 | Bridge + infra-TAK hook (Python ≥3.10, stdlib) | `cd bridge && python -m unittest discover -s tests` | 80 tests (6 need Flask; real-infra-TAK ones need `INFRATAK_REPO`, see VERIFY.md) |
-| ATAK (5.6 SDK) | `cp atak/local.properties.example atak/local.properties` (edit), then `cd atak && JAVA_HOME="C:/Program Files/Android/Android Studio/jbr" ./gradlew assembleCivDebug testCivDebugUnitTest` | 9 JVM tests, incl. parsing real bridge output |
-| ATAK (5.7 SDK, same tree) | `cd atak && S="C:/Users/<you>/Desktop/ATAK Development/ATAK-CIV-5.7.0.12-SDK/ATAK-CIV-5.7.0.12-SDK" && JAVA_HOME="C:/Program Files/Android/Android Studio/jbr" ./gradlew -Patak.version=5.7.0 "-Patak.sdk.path=$S" "-Psdk.path=$S" "-Ptakdev.plugin=$S/atak-gradle-takdev.jar" assembleCivDebug testCivDebugUnitTest` | same 9 tests; APK `…-ATAK-5.7-civ-debug.apk`, plugin-api `com.atakmap.app@5.7.0.CIV` |
-| ATAK → TAK.gov pipeline | `python atak/package-submission.py` → `ATAK-Plugin-CrowdCAD-<ver>-ATAK-5.6-src.zip` (+ .sha256) in `Desktop/ATAK Development/CrowdCAD-APKs/` | tracked `atak/` files + VERSION + COT_FORMAT.md; the unzipped package must pass `assembleCivRelease testCivDebugUnitTest` on its own. Form answers: [atak/docs/SUBMISSION.md](atak/docs/SUBMISSION.md) |
+| ATAK (5.6 SDK) | `cp atak/local.properties.example atak/local.properties` (edit), then `cd atak && JAVA_HOME="C:/Program Files/Android/Android Studio/jbr" ./gradlew assembleCivDebug testCivDebugUnitTest` | 11 JVM tests, incl. parsing real bridge output |
+| ATAK (5.7 SDK, same tree) | `cd atak && S="C:/Users/<you>/Desktop/ATAK Development/ATAK-CIV-5.7.0.12-SDK/ATAK-CIV-5.7.0.12-SDK" && JAVA_HOME="C:/Program Files/Android/Android Studio/jbr" ./gradlew -Patak.version=5.7.0 "-Patak.sdk.path=$S" "-Psdk.path=$S" "-Ptakdev.plugin=$S/atak-gradle-takdev.jar" assembleCivDebug testCivDebugUnitTest` | same 11 tests; APK `…-ATAK-5.7-civ-debug.apk`, plugin-api `com.atakmap.app@5.7.0.CIV` |
+| ATAK → TAK.gov pipeline | `python atak/package-submission.py` → `ATAK-Plugin-CrowdCAD_EUD-<ver>-5.6.0-civ-release.zip` (+ .sha256; `--atak 5.7` for 5.7.0, `--verify --sdk <SDK>` to test-build it) in `Desktop/ATAK Development/CrowdCAD-APKs/` | tracked `atak/` files + VERSION + COT_FORMAT.md; the unzipped package must pass `assembleCivRelease testCivDebugUnitTest` on its own. Form answers: [atak/docs/SUBMISSION.md](atak/docs/SUBMISSION.md) |
 | WebTAK | `node --test webtak/test/board.test.mjs` (node ≥18, no npm) · bundle: `python3 webtak/build.py` | 7 tests, incl. rendering a board the Python bridge made |
 | CloudTAK (13.x) | compiled inside CloudTAK by `cloudtak/install.sh`; check first: `CLOUDTAK_DIR=/path/to/CloudTAK node cloudtak/check-in-cloudtak.mjs` | CloudTAK's own lint + vue-tsc |
 
@@ -328,7 +328,8 @@ docs/
   images/                       README mockups (SVG, drawn from the UI code + demo fixture; not screenshots)
 bridge/                         the service (Python ≥3.10, stdlib only, no venv)
   crowdcad_tak/
-    mapping.py                  event record → items (pure); status maps; the PHI boundary
+    mapping.py                  event record → items (pure); status maps; the PHI boundary; "lat, lon" locations placed
+    calldetails.py              TAK call details: point → CrowdCAD location, floor/description/w3w → one [TAK] notes line + the bridge's store
     geo.py                      post/zone percent-of-map → lat/lon (inverse of CrowdCAD's own math)
     cot.py                      item → CoT XML (IU __iucad_* details, zones as u-d-f shapes)
     bridge.py                   Publisher: canonical "what TAK was told" + send rules; Runner: threads/IO
@@ -359,8 +360,20 @@ atak/                           ATAK plugin (Java, ATAK-CIV 5.6 or 5.7 SDK via a
     model/                      Board (newest wins, closed stays closed, stale expires), Incident, Unit, statuses
   app/src/test/                 JVM tests; resources/bridge-demo.cot is real bridge output
 cloudtak/                       CloudTAK plugin
-  plugin/                       web half → <CloudTAK>/…/plugins/crowdcad/ (Vue 3 board panel, tap → map)
-  server/plugin-crowdcad.ts     server half: relays /board with the token, which never reaches the browser
+  plugin/                       web half → <CloudTAK>/…/plugins/crowdcad/
+    components/CrowdCadPanel.vue    the dispatcher: Calls, Teams, Supervisors (CrowdCAD's words), status filter, screens
+    components/CallDetail.vue       one call: location + Set location, units-around radar, status on call, closest teams
+    components/AddCallForm.vue      CrowdCAD's Add Call + map point / what3words / coordinates / post, floor, description
+    components/AddUnitForm.vue      CrowdCAD's Add Team / Add Supervisor, optionally carried by a TAK contact
+    components/LocationEditor.vue   where a call is (lib/location.ts says what each choice becomes in CrowdCAD)
+    components/UnitRadar.vue, IncidentIcon.vue, UnitBadge.vue   radar; priority-tinted EMS icon; status letter
+    components/NewEventPanel.vue, DispatchFrame.vue              New event form; CrowdCAD's own screen in a pane
+    lib/core.ts                     pure display rules: status words/colours, floors, distances, closest units
+    lib/store.ts                    the one poll loop + latest board/dispatch view (nothing edited locally)
+    lib/client.ts, types.ts         server-half calls; board + manage API types (docs/API.md)
+    lib/incident-icon*.ts           the ATAK plugin's EMS icon, tinted per priority like IncidentStyler (generated data)
+  server/plugin-crowdcad.ts     server half: relays board + manage API with tokens that never reach the browser
+  make_incident_icon.py         regenerates lib/incident-icon-data.ts from the ATAK drawable
   install.sh, check-in-cloudtak.mjs   install into either CloudTAK layout; run CloudTAK's build gates
 webtak/                         WebTAK plugin (plain DOM, WebTAK 4.10 drawer API, floating fallback)
   plugin/                       index.js (registration) + src/ (config, client, format, ui, styles, core)
@@ -379,6 +392,9 @@ webtak/                         WebTAK plugin (plain DOM, WebTAK 4.10 drawer API
 | infra-TAK console page, card, sidebar | ✅ | Verified on infra-TAK v0.1.0 → current HEAD, **alongside Aleph's hook** |
 | ATAK plugin: board, my status on PLI, assignment alert, tap → map | 🔧 Built | Debug + release APKs build; 9 JVM tests pass; **not yet on a device** |
 | CloudTAK plugin | 🔧 Built | Same structure as Aleph's (which passes CloudTAK 13.14.1's gates); **CloudTAK's lint + vue-tsc not yet run on this one** |
+| CloudTAK dispatcher (0.1.5): IU EMS Dispatch's design, CrowdCAD's words | 🔧 Built | Calls / Teams / Supervisors, Add Call, Add Team, Add Supervisor, Set location (post, map point, what3words, coordinates, map centre), floor, units-around radar, closest teams + Assign, status filter, stale units fade, priority-tinted EMS icons. Bridge side unit-tested (`test_calldetails.py`); Vue compiled + type-checked against stubs only; **not yet in a live CloudTAK** |
+| Call location → CrowdCAD | 🔧 Built | A point becomes the call's CrowdCAD `location` ("lat, lon"); description/floor/what3words become one `[TAK]` notes line. Notes stay write-only from TAK (PHI) |
+| what3words | 🔧 Built | Optional: set `w3w_api_key` in the bridge's secrets.json by hand (no console field yet) |
 | WebTAK plugin | 🔧 Built | Registration shape from WebTAK-Plugin-Channels (in production); bundle boot-tested in a stub; **not yet in a live WebTAK** |
 | `install.sh` on a real host | 🔧 Built | Not yet run on a server: VERIFY.md |
 | WebTAK tap → map | ⬜ | No verified WebTAK map API for plugins; positions are on the map as CoT anyway |

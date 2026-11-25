@@ -19,9 +19,12 @@ CrowdCAD account), dispatchable by every signed-in CrowdCAD user.
 """
 
 import datetime
+import json
 import re
+import urllib.parse
+import urllib.request
 
-from . import dispatch, geo
+from . import calldetails, dispatch, geo
 from .dispatch import Clock, DispatchError
 from .store import EventStore
 
@@ -195,7 +198,7 @@ def can_dispatch(event, user_id, email):
                    f"with {email or 'the bridge account'}. Events created with New event here are always dispatchable.")
 
 
-def dispatch_view(event, overrides=None, user_id=None, email=None):
+def dispatch_view(event, overrides=None, user_id=None, email=None, details=None, w3w=False):
     """What CloudTAK's native dispatch needs from one event, in CrowdCAD's own names: units,
     open calls, posts and clinics. Same PHI rule as the board: a call's chief complaint at most,
     never age, sex, notes, logs or member names."""
@@ -207,13 +210,21 @@ def dispatch_view(event, overrides=None, user_id=None, email=None):
                               "location": unit.get("location"), "device": unit.get("takUid"),
                               **_where(unit.get("location"), event, overrides)})
     calls = []
+    details = details or {}
     for call in event.get("calls") or []:
         if call.get("status") in dispatch.RESOLVED_CALL_STATUSES:
             continue
+        where = _where(call.get("location"), event, overrides)
+        if where["lat"] is None:
+            coords = calldetails.parse_coords(call.get("location"))
+            if coords:
+                where = {"lat": coords[0], "lon": coords[1]}
         calls.append({"id": call.get("id"), "number": call.get("order"), "status": call.get("status"),
                       "location": call.get("location"), "chiefComplaint": call.get("chiefComplaint") or "",
                       "priority": bool(call.get("priority")), "assigned": list(call.get("assignedTeam") or []),
-                      **_where(call.get("location"), event, overrides)})
+                      # the TAK details from the bridge's store (never parsed back out of notes)
+                      "details": details.get(call.get("id")) or {},
+                      **where})
     posts, seen = [], set()
     for post in venue_posts(event.get("venue") or {}):
         name = post if isinstance(post, str) else (post or {}).get("name")
@@ -222,7 +233,7 @@ def dispatch_view(event, overrides=None, user_id=None, email=None):
             posts.append({"name": name, **_where(name, event, overrides)})   # lat/lon: "nearest post" from the map
     allowed, why = can_dispatch(event, user_id, email)
     return {"id": event.get("id"), "name": event.get("name"), "ended": bool(event.get("ended")),
-            "canDispatch": allowed, "whyNot": why,
+            "canDispatch": allowed, "whyNot": why, "w3w": bool(w3w),
             "units": units, "calls": calls, "posts": posts,
             "clinics": [{"id": c.get("id"), "name": c.get("name")} for c in (event.get("clinics") or dispatch.DEFAULT_CLINICS)],
             "statuses": {"onCall": dispatch.ON_CALL_STATUSES, "availability": dispatch.AVAILABILITY_STATUSES}}
@@ -231,8 +242,12 @@ def dispatch_view(event, overrides=None, user_id=None, email=None):
 class Manager:
     """The manage API's actions against a PocketBase client (pocketbase.PocketBase)."""
 
-    def __init__(self, pb, app_url=None, log=print, timezone="", layer_bounds=None):
+    def __init__(self, pb, app_url=None, log=print, timezone="", layer_bounds=None, details=None, w3w_key="",
+                 urlopen=urllib.request.urlopen):
         self.pb = pb
+        self.details = details or calldetails.CallDetails()   # shared with the Publisher (__main__)
+        self.w3w_key = w3w_key or ""
+        self.urlopen = urlopen
         self.layer_bounds = layer_bounds or {}
         self.app_url = (app_url or "").rstrip("/") or None
         self.log = log
@@ -248,7 +263,8 @@ class Manager:
         self.pb.ensure_auth()
         try:
             return dispatch_view(self.pb.get_record("events", event_id), self.layer_bounds,
-                                 self.pb.user_id, getattr(self.pb, "identity", None))
+                                 self.pb.user_id, getattr(self.pb, "identity", None),
+                                 self.details.for_event(event_id), bool(self.w3w_key))
         except Exception as error:
             raise ManageError(f"event not found: {event_id}", 404) from error
 
@@ -262,9 +278,94 @@ class Manager:
         return {"ok": True, **({"callId": extra} if extra else {})}
 
     def new_call(self, event_id, form, actor):
-        what = f"new call at {form.get('location') if isinstance(form, dict) else '?'}"
-        return self._dispatch(event_id, what, actor,
-                              lambda ev: dispatch.new_call(ev, form, f"CloudTAK: {actor}", self._clock()))
+        """CrowdCAD's Add Call. form: {location, chiefComplaint, priority, source?, assign?, details?}.
+        With details carrying a point, the call's CrowdCAD location IS that point ("lat, lon"); the
+        rest goes to notes (calldetails.py). One write: call, details and assignment land together."""
+        if not isinstance(form, dict):
+            raise ManageError("body must be a JSON object")
+        details = self._clean(form.get("details")) if form.get("details") else None
+        if details and details["lat"] is not None:
+            form = {**form, "location": calldetails.format_coords(details["lat"], details["lon"])}
+        elif details and not (form.get("location") or "").strip() and details.get("description"):
+            form = {**form, "location": details["description"]}
+        clock = self._clock()
+        via = f"CloudTAK: {actor}"
+        expected = str(clock.ms)        # dispatch.new_call's id, unless that ms is already taken
+        previous = self.details.put(event_id, expected, details) if details else None
+
+        def action(ev):
+            patch, call_id = dispatch.new_call(ev, form, via, clock)
+            if details:
+                patch = {**patch, **calldetails.apply({**ev, **patch}, call_id, details, via, clock)}
+            return patch, call_id
+
+        try:
+            result = self._dispatch(event_id, f"new call at {form.get('location')}", actor, action)
+        except ManageError:
+            if details:
+                self.details.restore(event_id, expected, previous)
+            raise
+        if details and result.get("callId") != expected:
+            self.details.restore(event_id, expected, previous)
+            self.details.put(event_id, result["callId"], details)
+        return result
+
+    def call_details(self, event_id, call_id, form, actor):
+        """Set a call's TAK details: its point into CrowdCAD's location, the rest into notes."""
+        details = self._clean(form)
+        previous = self.details.put(event_id, call_id, details)
+        try:
+            return self._dispatch(event_id, f"details for call {call_id}", actor,
+                                  lambda ev: calldetails.apply(ev, call_id, details, f"CloudTAK: {actor}", self._clock()))
+        except ManageError:
+            self.details.restore(event_id, call_id, previous)
+            raise
+
+    def add_team(self, event_id, form, actor):
+        """CrowdCAD's Add Team (handleSaveNewTeam)."""
+        name = (form or {}).get("name") if isinstance(form, dict) else None
+        return self._dispatch(event_id, f"team {name!r} added", actor,
+                              lambda ev: dispatch.add_team(ev, form, f"CloudTAK: {actor}", self._clock()))
+
+    def add_supervisor(self, event_id, form, actor):
+        """CrowdCAD's Add Supervisor (handleSaveNewSupervisor)."""
+        name = (form or {}).get("callSign") if isinstance(form, dict) else None
+        return self._dispatch(event_id, f"supervisor {name!r} added", actor,
+                              lambda ev: dispatch.add_supervisor(ev, form, f"CloudTAK: {actor}", self._clock()))
+
+    @staticmethod
+    def _clean(form):
+        try:
+            return calldetails.clean(form)
+        except DispatchError as error:
+            raise ManageError(str(error), error.status) from error
+
+    def w3w(self, query):
+        """what3words <-> coordinates for the dispatcher's form. The API key stays on the bridge
+        (secrets.json w3w_api_key); without one this is 404 and the form hides what3words."""
+        if not self.w3w_key:
+            raise ManageError("what3words isn't set up on this bridge (no API key)", 404)
+        words = (query.get("words") or [""])[0].strip().lower().lstrip("/")
+        if words:
+            if not calldetails.W3W.match(words):
+                raise ManageError("what3words must look like ///word.word.word")
+            path = "convert-to-coordinates?" + urllib.parse.urlencode({"words": words, "key": self.w3w_key})
+        else:
+            try:
+                lat, lon = float((query.get("lat") or [""])[0]), float((query.get("lon") or [""])[0])
+            except ValueError:
+                raise ManageError("give words, or lat and lon") from None
+            path = "convert-to-3wa?" + urllib.parse.urlencode({"coordinates": f"{lat},{lon}", "key": self.w3w_key})
+        try:
+            with self.urlopen("https://api.what3words.com/v3/" + path, timeout=8) as response:
+                data = json.loads(response.read() or b"{}")
+        except Exception as error:   # never echo the URL or the error text: both can carry the key
+            raise ManageError(f"what3words lookup failed ({type(error).__name__})", 502) from None
+        if data.get("error") or not data.get("words"):
+            raise ManageError((data.get("error") or {}).get("message") or "what3words found nothing", 404)
+        point = data.get("coordinates") or {}
+        return {"words": data["words"], "lat": point.get("lat"), "lon": point.get("lng"),
+                "nearestPlace": data.get("nearestPlace") or ""}
 
     def assign(self, event_id, call_id, form, actor):
         unit = (form or {}).get("unit")

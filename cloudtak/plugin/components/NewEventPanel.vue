@@ -148,11 +148,12 @@
 <script setup lang='ts'>
 // CloudTAK's New event form: name, date, a venue built in CrowdCAD, and TAK contacts picked as
 // teams or supervisors. The bridge's manage API writes the event in CrowdCAD's own shape
-// (bridge/crowdcad_tak/manage.py); then the board shows it and its Dispatch pane opens.
+// (bridge/crowdcad_tak/manage.py); then the dispatcher opens on it.
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import MenuTemplate from '../../../src/components/CloudTAK/util/MenuTemplate.vue';
 import * as crowdcad from '../lib/client.ts';
+import { selectEvent } from '../lib/store.ts';
 import type { TakContact, VenueSummary } from '../lib/types.ts';
 
 interface Row extends TakContact {
@@ -222,8 +223,9 @@ async function submit(): Promise<void> {
             venueId: venueId.value,
             units: picked.value.map((c) => ({ name: c.name.trim(), kind: c.kind, uid: c.uid, callsign: c.callsign })),
         });
-        // Straight into native dispatch for the new event.
-        await router.push({ name: 'home-menu-plugin-crowdcad-dispatch', query: { event: created.id } });
+        // Straight back to the dispatcher, on the new event.
+        selectEvent(created.id);
+        await router.push({ name: 'home-menu-plugin-crowdcad' });
     } catch (err) {
         error.value = errorText(err);
     } finally {

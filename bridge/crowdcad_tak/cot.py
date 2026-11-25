@@ -39,8 +39,9 @@ def _event(item, now_ms, stale_s):
         "version": "2.0", "uid": item.uid, "type": TYPES[item.kind], "how": "h-e",
         "time": iso(now_ms), "start": iso(now_ms), "stale": iso(now_ms + stale_s * 1000),
     })
+    ce = item.fields.get("ce")     # incidents: how good the point is (mapping.POSITION_CE)
     ET.SubElement(root, "point", {"lat": f"{item.lat:.7f}", "lon": f"{item.lon:.7f}",
-                                  "hae": UNKNOWN, "ce": UNKNOWN, "le": UNKNOWN})
+                                  "hae": UNKNOWN, "ce": f"{ce:.1f}" if ce else UNKNOWN, "le": UNKNOWN})
     detail = ET.SubElement(root, "detail")
     ET.SubElement(detail, "contact", {"callsign": str(item.fields.get("callsign") or "")})
     return root, detail
@@ -55,6 +56,10 @@ def render(item, now_ms, created_ms, updated_ms, stale_s):
                  "created": str(int(created_ms)), "updated": str(int(updated_ms))}
         if f.get("assigned"):
             attrs["assigned"] = f["assigned"]
+        if f.get("floor"):
+            attrs["floor"] = str(int(f["floor"]))     # IU: 1–8, -1 basement; omitted = none
+        if f.get("w3w"):
+            attrs["w3w"] = f["w3w"]
         ET.SubElement(detail, "__iucad_incident", attrs)
     elif item.kind == "unit":
         # Unmapped status → no unit detail at all (COT_FORMAT.md §1: unknown is ignored, never defaulted).

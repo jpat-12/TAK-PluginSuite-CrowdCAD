@@ -176,8 +176,14 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
         List<String> who = new ArrayList<>();
         for (String uid : i.assigned)
             who.add(board.callsign(uid));
-        text(card, i.location + " · " + ago(i.created, now) + " · "
+        String floor = i.floorLabel();
+        text(card, i.location + (floor.isEmpty() ? "" : " · " + floor) + " · " + ago(i.created, now) + " · "
                 + (who.isEmpty() ? "no unit" : android.text.TextUtils.join(", ", who)), false);
+        if (!i.w3w.isEmpty())
+            text(card, "///" + i.w3w, false);
+        if (i.positionIsEstimate())
+            text(card, "Position is an estimate: confirm the spot by radio", false)
+                    .setTextColor(color(incidentColor(IncidentStatus.DISP)));
         card.setOnClickListener(v -> centreOn(i));
 
         if (!i.id.equals(reporter.current().incidentId)) {

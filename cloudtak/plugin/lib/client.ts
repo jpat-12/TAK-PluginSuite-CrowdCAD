@@ -5,7 +5,10 @@
 // the public plugin API has no HTTP client. Same import Aleph's plugin uses — re-verify it on
 // every CloudTAK upgrade.
 import { std } from '../../../src/std.ts';
-import type { Board, BridgeInfo, CreatedEvent, DispatchView, NewCall, NewEvent, TakContact, VenueSummary } from './types.ts';
+import type {
+    Board, BridgeInfo, CallDetails, CreatedEvent, DispatchView, NewCall, NewEvent, NewSupervisor, NewTeam,
+    TakContact, VenueSummary, W3w,
+} from './types.ts';
 
 // The bridge API major this plugin speaks; refuse others instead of showing a wrong board.
 export const SUPPORTED_API = 1;
@@ -65,4 +68,26 @@ export async function setUnitStatus(eventId: string, unit: string, status: strin
 
 export async function setUnitPost(eventId: string, unit: string, post: string): Promise<void> {
     await std(`${eventPath(eventId)}/units/post`, { method: 'POST', body: { unit, post } });
+}
+
+/** Set a call's point (→ its CrowdCAD location) and floor / description / what3words (→ its notes). */
+export async function setCallDetails(eventId: string, callId: string, details: CallDetails): Promise<void> {
+    await std(`${eventPath(eventId)}/calls/${encodeURIComponent(callId)}/details`, { method: 'POST', body: details });
+}
+
+export async function addTeam(eventId: string, team: NewTeam): Promise<void> {
+    await std(`${eventPath(eventId)}/teams`, { method: 'POST', body: team });
+}
+
+export async function addSupervisor(eventId: string, supervisor: NewSupervisor): Promise<void> {
+    await std(`${eventPath(eventId)}/supervisors`, { method: 'POST', body: supervisor });
+}
+
+// what3words goes through the bridge: the API key never reaches this page.
+export async function w3wFind(words: string): Promise<W3w> {
+    return await std('/api/plugin-crowdcad/w3w?words=' + encodeURIComponent(words.trim())) as W3w;
+}
+
+export async function w3wAt(lat: number, lon: number): Promise<W3w> {
+    return await std(`/api/plugin-crowdcad/w3w?lat=${lat}&lon=${lon}`) as W3w;
 }

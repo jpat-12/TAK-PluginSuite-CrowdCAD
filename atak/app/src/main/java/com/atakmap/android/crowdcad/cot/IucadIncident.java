@@ -21,6 +21,11 @@ public final class IucadIncident {
 
     /** @return the incident, or null if the detail is malformed or from a newer format. */
     public static Incident parse(Attrs a, String uid, double lat, double lon, long staleAt) {
+        return parse(a, uid, lat, lon, Double.NaN, staleAt);
+    }
+
+    /** @param ce the CoT point's ce in metres (how good the point is), NaN if unknown. */
+    public static Incident parse(Attrs a, String uid, double lat, double lon, double ce, long staleAt) {
         Integer v = integer(a.get("v"));
         if (v == null || v > VERSION)
             return null;
@@ -40,7 +45,13 @@ public final class IucadIncident {
         return new Incident(uid, id, status, orEmpty(a.get("type")),
                 Math.max(1, Math.min(3, priority)),   // out of range is clamped (IU rule)
                 orEmpty(a.get("location")), orEmpty(a.get("reportedBy")), created, updated,
-                assigned, lat, lon, staleAt);
+                assigned, lat, lon, staleAt, floor(a.get("floor")), orEmpty(a.get("w3w")).trim(), ce);
+    }
+
+    /** IU format: 1..8, -1 basement; anything else (or absent) is "none given" (0). */
+    static int floor(String s) {
+        Integer f = integer(s);
+        return f == null || (f != -1 && (f < 1 || f > 8)) ? 0 : f;
     }
 
     static Integer integer(String s) {

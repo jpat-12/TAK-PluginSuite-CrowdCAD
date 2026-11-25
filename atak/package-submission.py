@@ -15,8 +15,8 @@ Why this script exists instead of "zip the atak/ folder":
 Usage (from anywhere, stdlib only):
   python atak/package-submission.py [--atak 5.6|5.7] [--verify [--sdk DIR]] [--out DIR]
 Default DIR is ~/Desktop/ATAK Development/CrowdCAD-APKs. Writes
-ATAK-Plugin-CrowdCAD-<ver>-ATAK-<atak>-src.zip plus a .sha256 next to it, and prints the
-list of included files.
+ATAK-Plugin-CrowdCAD_EUD-<ver>-<atak full>-civ-release.zip (e.g. ...-0.1.3-5.6.0-civ-release.zip,
+the naming Jon uses for pipeline uploads) plus a .sha256, and prints the list of included files.
 
 --atak 5.6 (default): zip as-is; build.gradle defaults to 5.6.0.
 --atak 5.7: patches the default ATAK_VERSION in app/build.gradle inside the zip so the
@@ -44,7 +44,7 @@ import zipfile
 
 ATAK_DIR = pathlib.Path(__file__).resolve().parent
 REPO = ATAK_DIR.parent
-TOP = "ATAK-Plugin-CrowdCAD"          # single top-level folder inside the zip
+TOP = "ATAK-Plugin-CrowdCAD_EUD"      # single top-level folder inside the zip (EUD = the device plugin, not the bridge)
 
 ATAK_VERSIONS = {'5.6': '5.6.0', '5.7': '5.7.0'}
 
@@ -55,7 +55,10 @@ EXTRA = [
 ]
 
 # Allowed binaries; anything else binary-looking aborts the build of the zip.
-ALLOWED_BINARIES = {"gradle/wrapper/gradle-wrapper.jar", ".takdev/aars/takdevlint.aar"}
+# The iconset zip is plugin content: IconsetInstaller imports it into ATAK on load.
+# Rebuild it with iconset/build_iconset.py, never by hand.
+ALLOWED_BINARIES = {"gradle/wrapper/gradle-wrapper.jar", ".takdev/aars/takdevlint.aar",
+                    "app/src/main/assets/iconsets/CrowdCAD.zip"}
 BINARY_EXT = {".apk", ".aab", ".jar", ".aar", ".class", ".so", ".zip", ".keystore", ".jks", ".p12"}
 FORBIDDEN = {"local.properties", ".takdev/plugin.properties"}
 EXECUTABLE = {"gradlew"}
@@ -145,7 +148,7 @@ def main():
 
     out_dir = pathlib.Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
-    zip_name = f"ATAK-Plugin-CrowdCAD-{version}-ATAK-{args.atak}-src.zip"
+    zip_name = f"{TOP}-{version}-{ATAK_VERSIONS[args.atak]}-civ-release.zip"
     zip_path = out_dir / zip_name
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for src, rel, override in sorted(entries, key=lambda e: e[1]):

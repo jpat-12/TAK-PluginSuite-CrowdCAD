@@ -30,29 +30,49 @@ final class IncidentHandler extends CotDetailHandler {
 
     private final Board board;
     private final AssignmentListener listener;
+    private final IncidentStyler styler;
     private final Handler ui = new Handler(Looper.getMainLooper());
     // Incident ids already alerted for, so a re-sent incident doesn't alert again. Import thread only.
     private final Set<String> alerted = new HashSet<>();
+    // Incidents this device is currently assigned to; cleared on unassign so a re-assign re-arms the alert.
+    private final Set<String> assignedNow = new HashSet<>();
 
-    IncidentHandler(Board board, AssignmentListener listener) {
+    IncidentHandler(Board board, AssignmentListener listener, IncidentStyler styler) {
         super(IucadIncident.ELEMENT);
         this.board = board;
         this.listener = listener;
+        this.styler = styler;
     }
 
     @Override
     public CommsMapComponent.ImportResult toItemMetadata(MapItem item, CotEvent event, CotDetail detail) {
         Incident incident = IucadIncident.parse(detail::getAttribute, event.getUID(),
-                event.getCotPoint().getLat(), event.getCotPoint().getLon(), event.getStale().getMilliseconds());
+                event.getCotPoint().getLat(), event.getCotPoint().getLon(), event.getCotPoint().getCe(),
+                event.getStale().getMilliseconds());
         if (incident == null)
             return CommsMapComponent.ImportResult.IGNORE;
         Board.Change change = board.put(incident);
         if (change == Board.Change.CLOSED) {
             // Closed: off the map now rather than after the 90 s stale (same as IU Event CAD).
             ui.post(item::removeFromGroup);
-        } else if (change != Board.Change.IGNORED && incident.assigned.contains(MapView.getDeviceUid())
-                && alerted.add(incident.id)) {
-            ui.post(() -> listener.onAssigned(incident));
+            styler.forget(incident.uid);
+            alerted.remove(incident.id);
+            assignedNow.remove(incident.id);
+            return CommsMapComponent.ImportResult.SUCCESS;
+        }
+        // Every import, IGNORED heartbeats too: ATAK just re-applied its default icon. Style from
+        // the Board's held copy, so a late older copy can't paint an outdated priority.
+        Incident held = board.incident(incident.uid);
+        styler.style(item, held != null ? held : incident);
+        if (change != Board.Change.IGNORED) {
+            if (incident.assigned.contains(MapView.getDeviceUid())) {
+                assignedNow.add(incident.id);
+                if (alerted.add(incident.id))
+                    ui.post(() -> listener.onAssigned(incident));
+            } else if (assignedNow.remove(incident.id)) {
+                // No longer assigned: re-arm so a future re-assignment fires the alert again.
+                alerted.remove(incident.id);
+            }
         }
         return CommsMapComponent.ImportResult.SUCCESS;
     }

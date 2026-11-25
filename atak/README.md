@@ -10,7 +10,8 @@ CoT that ATAK already receives from its TAK Server.
 **Key idea:** the plugin has no network surface of its own. It requests no INTERNET permission,
 opens no sockets and needs no settings. Everything arrives as CoT in IU Event CAD's
 `__iucad_incident` / `__iucad_unit` format, specified in [docs/COT_FORMAT.md](docs/COT_FORMAT.md).
-Devices without the plugin still see the same markers as plain CoT.
+Devices without the plugin still see the same markers as plain CoT, with ATAK's default incident
+icon. Only plugin devices get the priority-coloured EMS icon.
 
 ## Build
 
@@ -45,10 +46,17 @@ app/src/main/
     plugin/CrowdCadLifecycle     IPlugin lifecycle; registers the map component and toolbar tool
     plugin/CrowdCadTool          toolbar button that opens the panel
     CrowdCadMapComponent         wires the CoT handlers, board, panel and assignment alert (vibrate + toast)
+    IconsetInstaller             on load: imports assets/iconsets/CrowdCAD.zip into ATAK (skips if that version is in); error → dialog with Retry
+    IncidentStyler               incident markers → EMS Star-of-Life icon tinted by priority (re-applied after every import)
     CrowdCadDropDown             panel: my-status buttons, open incidents (P1 first), units
     IncidentHandler, UnitHandler CoT detail handlers: __iucad_incident / __iucad_unit → Board
     StatusReporter               adds this device's status to its own PLI (via AtakBroadcast)
     cot/                         pure parsers for the two CoT details (+ Attrs helpers)
-    model/                       Board (canonical in-memory state), Incident, Unit, status enums
-app/src/test/                    9 JVM tests; bridge-demo.cot is real bridge output (invented people)
+    model/                       Board (canonical in-memory state), Incident, Unit, status enums,
+                                 Priority (P1 red #E03131, P2 orange #F76707, P3 yellow #FCC419)
+  assets/iconsets/CrowdCAD.zip   EMS iconset built by the suite's iconset/build_iconset.py; uid and file names are API
+  res/drawable-nodpi/cc_incident_ems.png  the PNG embedded in the suite's
+                                 svgs/incdnt-comand-white-solid-genric-ems-plain_2026_11_25.svg (white disc;
+                                 MULTIPLY-tinted at runtime, so ring and star stay dark)
+app/src/test/                    11 JVM tests; bridge-demo.cot is real bridge output (invented people)
 ```

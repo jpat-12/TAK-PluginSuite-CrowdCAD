@@ -60,6 +60,12 @@ Clients refuse a different `api` major instead of rendering a wrong board.
 | `units[].status` | IU unit code, or `null` when CrowdCAD's team status has no IU equivalent (never defaulted) |
 | `units[].device` | team carried by its own ATAK device (`team_uids`): listed with dispatch's status for it; `lat/lon` null, since its position is the device's PLI |
 | `unplaced` | calls/teams CrowdCAD can't place on the map (show them; nobody else will) |
+| `calls[].callId` / `number` | CrowdCAD's own call id (for the manage API's call actions) and its `#number` |
+| `calls[].crowdcadStatus`, `units[].crowdcadStatus` | CrowdCAD's own status text ("Pending", "En Route", "On Break"…): clients show it, so their words match CrowdCAD's screen |
+| `calls[].positionFrom` | `post` (a georeferenced post) · `coords` (a point a dispatcher placed: the call's CrowdCAD location is "lat, lon") · `estimate` (map centre) · `null` unplaced |
+| `calls[].floor` / `w3w` / `description` | TAK call details (bridge `calldetails.py`, the bridge's own store; never read from notes). `floor` 1–8, -1 basement |
+| `calls[].callLocation` | the call's CrowdCAD `location` field as stored (`location` shows the description when there is one) |
+| `units[].lat/lon` (device units) | the device's last position report with a fix, as the bridge heard it (radar, closest units); null until heard |
 | `crowdcadUrl` | the CrowdCAD web app (`crowdcad_app_url`), or `null` when not configured |
 | `endable` | the event was created from TAK (owned by the bridge account), so the manage API can end it |
 | `dispatchUrl` | CrowdCAD's own dispatch screen for this event, or `null`. Clients show a **Dispatch** button that embeds it (CloudTAK floating pane, WebTAK floating window) with an "open in new window" link. The dispatcher signs in to CrowdCAD there as themselves, so every change follows CrowdCAD's own rules and is attributed in its call log. The bridge never writes to CrowdCAD |
@@ -82,6 +88,15 @@ board token doesn't work here). `X-TAK-User` (the CloudTAK username) is logged w
 | `POST …/events/{id}/calls/{callId}/status` | `{unit, status, clinicId?, transportUnit?}`: `En Route, On Scene, Transporting, Pending Transport, Detached`, or a closing status (`Delivered, Refusal, NMM, Unable to Locate, Rolled from Scene`) with CrowdCAD's full cascade (handleTeamStatusChange) |
 | `POST …/events/{id}/units/status` | `{unit, status}`: `Available, On Break, In Clinic` (handleStatusChange) |
 | `POST …/events/{id}/units/post` | `{unit, post}` (handleLocationChange) |
+| `POST …/calls` with `details` | Add Call plus TAK details in one write: `details: {lat, lon, source: map\|w3w\|coords\|centre\|post, post?, description?, floor?, w3w?}`. A point becomes the call's CrowdCAD `location` ("39.18200, -86.52550"); description, floor, what3words and the source go into ONE `[TAK] …` line of its `notes` |
+| `POST …/calls/{callId}/details` | the same details for an open call: a point or `post` replaces its `location`; the `[TAK]` line in `notes` is replaced in place (the rest of the notes is never touched); one log entry "TAK details: …" |
+| `POST …/events/{id}/teams` | Add Team (handleSaveNewTeam): `{name, members?: [{name, cert, lead}], takUid?}` → staff entry `{team, members: ["Name [Cert] (Lead)"], status: Available, location: ""}`. Names unique across teams AND supervisors (409) |
+| `POST …/events/{id}/supervisors` | Add Supervisor (handleSaveNewSupervisor): `{callSign, cert, name?, takUid?}` → `{team, member: "Name [Cert]", status: Available, location: Roaming}` |
+| `GET /api/v1/manage/w3w?words=a.b.c` or `?lat=&lon=` | `{words, lat, lon, nearestPlace}` via what3words with the bridge's `w3w_api_key` (secrets.json). `404` when no key; the key never leaves the bridge |
+
+**Notes are write-only from TAK.** Notes can hold patient details, so the bridge never reads them
+to send anywhere: the `[TAK]` line is a copy for people working in CrowdCAD's own screen, and the
+board and CoT read the bridge's store (`data_dir/call_details.json`). Tests: `bridge/tests/test_calldetails.py`.
 
 Dispatch writes are CrowdCAD v1.6.0's own handlers ported to `bridge/crowdcad_tak/dispatch.py`,
 applied by `store.py` compare-and-swap through the PocketBase hook `infratak/pb_hooks/crowdcad_tak.pb.js`
