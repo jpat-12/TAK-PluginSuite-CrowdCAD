@@ -1,8 +1,8 @@
 # CrowdCAD for ATAK
 
 **An ATAK 5.6 plugin that shows a CrowdCAD event's live medical calls and team status on the
-map and in a panel, alerts a medic when dispatch assigns their team, and puts the medic's own
-status on their position report.** It is the field client of the CrowdCAD for TAK suite
+map and in a panel, alerts a medic when dispatch assigns their team, and lets the medic
+acknowledge the call.** Medics can't change status; dispatch does that in CrowdCAD. It is the field client of the CrowdCAD for TAK suite
 (github.com/jpat-12/TAK-PluginSuite-CrowdCAD). A bridge service turns
 [CrowdCAD](https://github.com/evanqua/crowdcad) dispatch data into CoT. This plugin only reads
 CoT that ATAK already receives from its TAK Server.
@@ -48,11 +48,12 @@ app/src/main/
     CrowdCadMapComponent         wires the CoT handlers, board, panel and assignment alert (vibrate + toast)
     IconsetInstaller             on load: imports assets/iconsets/CrowdCAD.zip into ATAK (skips if that version is in); error → dialog with Retry
     IncidentStyler               incident markers → EMS Star-of-Life icon tinted by priority (re-applied after every import)
-    CrowdCadDropDown             panel: my-status buttons, open incidents (P1 first), units
+    CrowdCadDropDown             panel: my assignment (read-only), open incidents (P1 first, Acknowledge on mine), units
     IncidentHandler, UnitHandler CoT detail handlers: __iucad_incident / __iucad_unit → Board
-    StatusReporter               adds this device's status to its own PLI (via AtakBroadcast)
+    AckReporter                  Acknowledge → <__crowdcad_ack incident at> on this device's PLI; acked ids in prefs
     cot/                         pure parsers for the two CoT details (+ Attrs helpers)
     model/                       Board (canonical in-memory state), Incident, Unit, status enums,
+                                 Assignment (is a call mine: device uid, or unlinked team matching my callsign),
                                  Priority (P1 red #E03131, P2 orange #F76707, P3 yellow #FCC419)
   assets/iconsets/CrowdCAD.zip   EMS iconset built by the suite's iconset/build_iconset.py; uid and file names are API
   res/drawable-nodpi/cc_incident_ems.png  the PNG embedded in the suite's

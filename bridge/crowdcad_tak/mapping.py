@@ -172,7 +172,7 @@ def callsign_key(name):
 
 def free_units(event, config):
     """Teams/supervisors no device carries yet → [name]. A phone whose ATAK callsign matches one
-    links itself to it on its first status tap (fieldstatus.py)."""
+    links itself to it on its first Acknowledge tap (fieldstatus.py)."""
     bound = unit_uids(event, config)
     return [t["team"] for t in list(event.get("staff") or []) + list(event.get("supervisor") or [])
             if t.get("team") and t["team"] not in bound]

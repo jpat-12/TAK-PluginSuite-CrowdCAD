@@ -1,6 +1,7 @@
 """mapping.Item → CoT XML. Wire format: docs/COT_FORMAT.md (incident/unit details are IU Event
 CAD's `__iucad_*` format verbatim, so the IU ATAK plugin reads CrowdCAD calls unmodified)."""
 
+import hashlib
 import time
 import xml.etree.ElementTree as ET
 
@@ -15,6 +16,17 @@ TYPES = {
     "zone": "u-d-f",
     "post": "b-m-p-s-m",
 }
+
+
+# The CrowdCAD iconset (iconset/build_iconset.py; installed on ATAK by the plugin, imported into
+# CloudTAK/WinTAK by hand). Its uid and filenames are API: never change them once shipped.
+ICONSET_UID = hashlib.sha256(b"crowdcad-tak/iconset").hexdigest()
+PRIORITY_ICON = {1: "EMS P1.png", 2: "EMS P2.png", 3: "EMS P3.png"}
+
+
+def incident_icon(priority):
+    """The iconset path of a call's marker: the EMS icon tinted by priority (same as ATAK's plugin)."""
+    return f"{ICONSET_UID}/CrowdCAD/{PRIORITY_ICON.get(int(priority), PRIORITY_ICON[2])}"
 
 
 def iso(ms):
@@ -47,6 +59,24 @@ def _event(item, now_ms, stale_s):
     return root, detail
 
 
+DELETE_STALE_S = 20
+
+
+def render_delete(target_uid, target_kind, now_ms):
+    """TAK's standard delete for a marker: <event type="t-x-d-d"> linking the target, with
+    <__forcedelete/>. ATAK, WinTAK, iTAK and CloudTAK drop the marker at once instead of waiting for
+    its stale; sent right after the CLOSED message, so plugins still see the call close first."""
+    root = ET.Element("event", {
+        "version": "2.0", "uid": f"{target_uid}.delete", "type": "t-x-d-d", "how": "h-g-i-g-o",
+        "time": iso(now_ms), "start": iso(now_ms), "stale": iso(now_ms + DELETE_STALE_S * 1000),
+    })
+    ET.SubElement(root, "point", {"lat": "0.0", "lon": "0.0", "hae": UNKNOWN, "ce": UNKNOWN, "le": UNKNOWN})
+    detail = ET.SubElement(root, "detail")
+    ET.SubElement(detail, "link", {"uid": target_uid, "relation": "p-p", "type": TYPES[target_kind]})
+    ET.SubElement(detail, "__forcedelete")
+    return ET.tostring(root, encoding="unicode")
+
+
 def render(item, now_ms, created_ms, updated_ms, stale_s):
     root, detail = _event(item, now_ms, stale_s)
     f = item.fields
@@ -61,6 +91,7 @@ def render(item, now_ms, created_ms, updated_ms, stale_s):
         if f.get("w3w"):
             attrs["w3w"] = f["w3w"]
         ET.SubElement(detail, "__iucad_incident", attrs)
+        ET.SubElement(detail, "usericon", {"iconsetpath": incident_icon(f["priority"])})
     elif item.kind == "unit":
         # Unmapped status → no unit detail at all (COT_FORMAT.md §1: unknown is ignored, never defaulted).
         if f.get("status"):

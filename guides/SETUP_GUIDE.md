@@ -229,6 +229,30 @@ sudo bash TAK-PluginSuite-CrowdCAD/infratak/install.sh --tak-group MEDICAL --clo
 
 ---
 
+### TAK groups: the bridge must share a group with the phones
+
+The bridge's TAK certificate must be in the same TAK group as the medics' devices (and CloudTAK
+users), or the phones never get the calls and alerts and the bridge never hears the phones (no
+positions, no radar). With TAK Portal / LDAP group assignment (`<auth default="ldap"
+x509groups="true">`), groups for certificates come from the directory, not TAK Server's
+UserAuthenticationFile:
+
+1. TAK Portal → **Integrations** → **Create Integration**: Type **Global**, title `crowdcad`,
+   *Make Streaming Data Feed?* **No**, groups **ALL** (+ **CAD**): the same as the IU bridge's
+   `global-iucad`. Download its certs.
+2. Copy `global-crowdcad.pem` and `.key` to `/opt/crowdcad-tak/certs/` (root:crowdcad-tak, 0640;
+   re-encrypt the key with the bridge's `tak_key_password` from secrets.json, or set that to the
+   key's password), and set `tak_cert` / `tak_key` in `/opt/crowdcad-tak/data/config.json`.
+3. `systemctl restart crowdcad-tak`. If the integration was created moments before, TAK Server may
+   cache "no groups" for the first connection: restart the bridge once more after a minute.
+4. Check: the dispatcher's units show a position and "seen" time for phones that carry them.
+
+### CloudTAK: show calls with the CrowdCAD icons
+
+Calls carry `<usericon>` naming the CrowdCAD iconset's priority icons (`EMS P1/P2/P3.png`). Import
+`atak/app/src/main/assets/iconsets/CrowdCAD.zip` once in CloudTAK (Iconsets) so CloudTAK draws them;
+ATAK gets the iconset from the plugin. Until then calls keep CloudTAK's default marker.
+
 ## Step 6: Put the plugin on ATAK devices
 
 APKs are not committed to the repository. Build one on a PC with Android Studio and the
@@ -287,7 +311,7 @@ Run this before **every** event, ideally an hour before doors.
 | ☐ | Zones appear on an ATAK device in the right TAK group | ATAK |
 | ☐ | **Not on the map** list is empty | Console, or any board |
 | ☐ | Every team carrying a phone is mapped to its device UID | Console → Settings, callout C |
-| ☐ | Each medic device has the plugin loaded and shows *My status* | ATAK → CrowdCAD |
+| ☐ | Each medic device has the plugin loaded and shows *Assigned to you* / *No call assigned to you* | ATAK → CrowdCAD |
 | ☐ | Dispatchers can open **Dispatch** and sign in to CrowdCAD (if using the CrowdCAD screen) | CloudTAK / WebTAK |
 | ☐ | A test call at a post shows on every client, then resolve it | CrowdCAD + clients |
 

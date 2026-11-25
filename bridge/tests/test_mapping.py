@@ -151,6 +151,7 @@ class CotTest(unittest.TestCase):
             "location": "Sec 104", "reportedBy": "Event Services", "created": "1794700800000",
             "updated": "1794701000000", "assigned": f"crowdcad-{EID}-team-team-1"})
         self.assertEqual(root.find("detail/contact").get("callsign"), "007 · Chest pain")
+        self.assertTrue(root.find("detail/usericon").get("iconsetpath").endswith("/CrowdCAD/EMS P1.png"))
 
     def test_closed_incident_short_stale(self):
         items, _ = build()

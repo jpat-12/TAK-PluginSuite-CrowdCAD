@@ -20,9 +20,14 @@ Facts an agent needs that the code can't show. Workspace-wide rules: `../CLAUDE.
   `[TAK] …` line into a call's notes and NEVER reads notes to send anywhere. Board/CoT read TAK details
   from the bridge's own store (`data_dir/call_details.json`). A map point goes into CrowdCAD's own
   `location` as "lat, lon", and mapping.py places any call whose location parses that way.
-- **Use CrowdCAD's words** in every client: Calls, Teams, Supervisors, Add Call, Add Team, Add Supervisor,
-  Chief Complaint, Source, Mark as Priority, and CrowdCAD's own status text (board `crowdcadStatus`).
-  Check CrowdCAD's source (components/modals/event/*, dispatch/page.tsx) before naming a new control.
+- **The CloudTAK plugin is IU EMS Dispatch used as the template** (../TAK-PluginSuite-IndianaUniversity/
+  CloudTAK-Eventcad). Keep its diff from IU small and readable (keep IU's `iucad-` CSS classes); the
+  backend is `bridge/crowdcad_tak/dispatcher.py`, which serves IU's board/action shapes from CrowdCAD
+  with CrowdCAD's own handlers. Jon chose this after two other attempts (archived in
+  ../_archive/crowdcad-cloudtak-2026-11-25/). Check CrowdCAD's source before porting a new action.
+- **TAK groups:** the bridge's cert must share a group with the phones (ILWG: `ALL`, via the TAK Portal
+  integration `global-crowdcad`). Groups come from LDAP, not UserAuthenticationFile; a fresh
+  integration may need one extra bridge restart (TAK caches "no groups"). Symptom: units never "heard".
 - **PHI boundary is `mapping.build`.** Never add a Call/Staff field to `Item.fields`/`Item.meta`
   without updating the PHI tests (bridge, board, ATAK fixture). age/gender/notes/log/members never go out.
 
@@ -45,8 +50,8 @@ Facts an agent needs that the code can't show. Workspace-wide rules: `../CLAUDE.
   build.gradle prefers `atak/VERSION` (the packager's copy, gitignored) over `../VERSION`, and release signing falls
   back to `${buildDir}/android_keystore` (takdev's) when there is no `atak.sdk.path`. Verify by unzipping outside the
   repo and building there. Keep `atak/docs/SUBMISSION.md` (permissions/data answers) true when the manifest changes.
-- CloudTAK incident icon: `python cloudtak/make_incident_icon.py` after changing the ATAK drawable
-  `cc_incident_ems.png` (one icon, both clients; don't hand-edit `incident-icon-data.ts`).
+- Iconset (ATAK + CloudTAK call markers): `python iconset/build_iconset.py` → atak/…/iconsets/CrowdCAD.zip.
+  uid and filenames are API (cot.py names `EMS P1/P2/P3.png`); bump its VERSION to change art.
 - WebTAK: `node --test webtak/test/board.test.mjs` (Node 22 no longer takes a directory). CloudTAK: `CLOUDTAK_DIR=… node cloudtak/check-in-cloudtak.mjs`
   (needs a CloudTAK checkout with npm deps installed — not on this machine as of 2026-11-09).
 

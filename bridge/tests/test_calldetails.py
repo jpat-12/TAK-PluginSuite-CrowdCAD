@@ -160,6 +160,24 @@ class StoreTest(unittest.TestCase):
             store.restore(EID, "c1", previous)
             self.assertIsNone(calldetails.CallDetails(path).get(EID, "c1"))
 
+    def test_failed_save_changes_nothing_and_says_so(self):
+        store = calldetails.CallDetails()
+        store.put(EID, "c2", {"floor": 2})
+
+        def broken(data):
+            raise OSError(30, "Read-only file system", "/opt/crowdcad-tak/data/call_details.json.tmp")
+        store._save = broken
+        with self.assertRaises(OSError):
+            store.put(EID, "c2", {"floor": 5})
+        self.assertEqual(store.get(EID, "c2"), {"floor": 2})
+        pb = FakePB()
+        pb.records["events"][EID]["isOrgEvent"] = True
+        manager = manage.Manager(pb, log=lambda line: None, details=store)
+        with self.assertRaises(manage.ManageError) as error:
+            manager.call_details(EID, "c2", {"floor": 5}, "jon")
+        self.assertIn("nothing was written to CrowdCAD", str(error.exception))
+        self.assertEqual(pb.updated, [])
+
     def test_corrupt_file_starts_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "call_details.json"

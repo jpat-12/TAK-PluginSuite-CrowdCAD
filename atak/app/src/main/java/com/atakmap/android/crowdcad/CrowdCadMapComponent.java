@@ -14,7 +14,7 @@ import com.atakmap.android.maps.MapView;
 
 /**
  * Owns the plugin's long-lived objects and their teardown: the {@link Board}, the two CoT
- * detail handlers that feed it, this device's {@link StatusReporter}, and the panel.
+ * detail handlers that feed it, this device's {@link AckReporter}, the incident icons, and the panel.
  */
 public class CrowdCadMapComponent extends DropDownMapComponent {
 
@@ -23,7 +23,7 @@ public class CrowdCadMapComponent extends DropDownMapComponent {
     private Board board;
     private IncidentHandler incidentHandler;
     private UnitHandler unitHandler;
-    private StatusReporter reporter;
+    private AckReporter acks;
     private IncidentStyler styler;
     private IconsetInstaller iconset;
 
@@ -32,8 +32,8 @@ public class CrowdCadMapComponent extends DropDownMapComponent {
         context.setTheme(com.atakmap.android.crowdcad.plugin.R.style.ATAKPluginTheme);
         super.onCreate(context, intent, view);
         board = new Board();
-        reporter = new StatusReporter(view, board);
-        CrowdCadDropDown dropDown = new CrowdCadDropDown(view, context, board, reporter);
+        acks = new AckReporter(view);
+        CrowdCadDropDown dropDown = new CrowdCadDropDown(view, context, board, acks);
         styler = new IncidentStyler(context, view);
         incidentHandler = new IncidentHandler(board, incident -> alertAssigned(view, dropDown, incident), styler);
         unitHandler = new UnitHandler(board);
@@ -43,7 +43,7 @@ public class CrowdCadMapComponent extends DropDownMapComponent {
         DocumentedIntentFilter filter = new DocumentedIntentFilter();
         filter.addAction(CrowdCadDropDown.SHOW_PLUGIN, "Show the CrowdCAD board");
         registerDropDownReceiver(dropDown, filter);
-        reporter.start();
+        acks.start();
         iconset = new IconsetInstaller(context, view);
         iconset.start();
     }
@@ -61,8 +61,8 @@ public class CrowdCadMapComponent extends DropDownMapComponent {
 
     @Override
     protected void onDestroyImpl(Context context, MapView view) {
-        if (reporter != null)
-            reporter.stop();
+        if (acks != null)
+            acks.stop();
         if (incidentHandler != null)
             CotDetailManager.getInstance().unregisterHandler(incidentHandler);
         if (unitHandler != null)

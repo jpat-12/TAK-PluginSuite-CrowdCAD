@@ -123,9 +123,12 @@ and is listed on the console page under "Not on the map", so it's found before g
 - Sent when its content changes. **Heartbeat** every `heartbeat_seconds` (120) re-sends
   everything live with the *same* `updated`, and `stale` is `stale_seconds` (300) ahead, so
   if the bridge dies its markers age off TAK instead of looking current.
-- Closed things (resolved call, deleted team/zone, ended or deselected event) are sent **once**
-  with status `CLOSED` (incidents) and a 90 s stale, then stop. No `t-x-d-d` deletes (IU rule:
-  late joiners never see them).
+- Closed things (resolved, cancelled or deleted call, removed team, erased zone, ended or deselected
+  event) are sent **once** with status `CLOSED` (incidents) and a 90 s stale, then **immediately
+  followed by TAK's delete** (`t-x-d-d` linking the marker's uid, with `<__forcedelete/>`, uid
+  `<marker uid>.delete`), so CloudTAK and plugin-less ATAK/WinTAK drop the marker at once instead of
+  showing it until the stale runs out. Plugins still read the CLOSED status first. Never re-sent.
+  `delete_closed: false` in config.json turns the delete off (CLOSED + 90 s stale only).
 - Something first seen already closed (e.g. last night's calls when the bridge restarts) is
   never sent.
 - On every TAK reconnect, everything live is re-sent. On every CrowdCAD reconnect, a full
@@ -137,3 +140,23 @@ Only the attributes in the tables above leave CrowdCAD. `age`, `gender`, `notes`
 team logs, and member names are never copied into the bridge's items, so no config can leak
 them. `tests/test_mapping.py::test_no_patient_or_member_data_on_the_wire` renders every item
 from a fixture seeded with fake patient details and asserts none appear.
+
+## From ATAK: `<__crowdcad_ack>` on the medic's own PLI (CrowdCAD-only, since 0.1.6)
+
+Medics can't set status (decided 2026-11-25). The plugin's one field action is Acknowledge on a
+call assigned to that phone. The phone's position report then carries its latest one:
+
+```xml
+<__crowdcad_ack incident="CC-007" at="1794701000000"/>
+```
+
+| Attribute | Meaning |
+|---|---|
+| `incident` | the IU incident `id` (`CC-007`), not the CoT uid |
+| `at` | ms since epoch of the tap. The bridge acts once per new `at`; the same value repeats on every PLI |
+
+The bridge (`fieldstatus.py`) turns a new `at` into one line in that call's CrowdCAD log,
+"1402 - Team 1 acknowledged the call. (via ATAK: MEDIC1)", and changes no status. It applies
+only to a unit on that call. From an unlinked phone it also links the phone to the free unit
+named like its callsign. IU Event CAD doesn't read this element. Plugins up to 0.1.5 put a
+self-set `<__iucad_unit>` on the PLI instead; the bridge now ignores it.

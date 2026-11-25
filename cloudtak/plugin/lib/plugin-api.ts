@@ -1,14 +1,9 @@
-// The PluginAPI handed to install(), shared with the panel. Getters on it pull the live Pinia
-// stores on access, so keep the API object, never a cached `api.map`.
+// Stores the PluginAPI reference so lib/ modules and components can reach it
+// without prop-drilling. Set once in install(); read anywhere.
+
 import type { PluginAPI } from '@tak-ps/cloudtak';
 
-let current: PluginAPI | null = null;
+let _api: PluginAPI | null = null;
 
-export function setPluginApi(api: PluginAPI): void {
-    current = api;
-}
-
-export function pluginApi(): PluginAPI {
-    if (!current) throw new Error('[plugin-crowdcad] used before install()');
-    return current;
-}
+export function initPluginApi(api: PluginAPI): void { _api = api; }
+export function getPluginApi(): PluginAPI | null { return _api; }

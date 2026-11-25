@@ -1,14 +1,14 @@
 <!--
-  Where the units are from one call: the call (its EMS icon) in the middle, north up, each unit
-  at its true bearing and scaled distance, rings for scale. Units past the outer ring sit on its
-  edge as hollow markers. Clicking a unit emits `pick` with its name.
+  Where the units are from one incident: incident in the middle, north up, each unit at its
+  true bearing and (scaled) distance, rings for scale. Units past the outer ring sit on its
+  edge as hollow markers. Clicking a unit emits `pick` (the panel fits both on the map).
 -->
 <template>
     <svg
         :viewBox='`0 0 ${SIZE} ${SIZE}`'
-        class='crowdcad-radar'
+        class='iucad-radar'
         role='img'
-        :aria-label='`Units around the call, outer ring ${formatMeters(range)}`'
+        :aria-label='`Units around the incident, outer ring ${formatMeters(range)}`'
     >
         <circle
             v-for='(r, i) in rings'
@@ -47,19 +47,23 @@
             class='north'
         >N</text>
 
-        <image
-            :href='incidentIcon(priority)'
-            :x='C - 11'
-            :y='C - 11'
-            width='22'
-            height='22'
+        <!-- the incident -->
+        <rect
+            :x='C - 7'
+            :y='C - 7'
+            width='14'
+            height='14'
+            :transform='`rotate(45 ${C} ${C})`'
+            fill='#E03131'
+            stroke='#e5e7eb'
+            stroke-width='1.5'
         />
 
         <g
             v-for='p in placed'
-            :key='p.name'
+            :key='p.uid'
             class='unit'
-            @click='$emit("pick", p.name)'
+            @click='$emit("pick", p.uid)'
         >
             <title>{{ p.title }}</title>
             <circle
@@ -83,57 +87,53 @@
                 :y='p.y + 22'
                 text-anchor='middle'
                 class='callsign'
-            >{{ p.label }}</text>
+            >{{ p.callsign }}</text>
         </g>
     </svg>
 </template>
 
 <script setup lang='ts'>
 import { computed } from 'vue';
-import { describeRelative, formatMeters, unitStatus, type Relative } from '../lib/core.ts';
-import { incidentIcon } from '../lib/incident-icon.ts';
-import type { BoardUnit } from '../lib/types.ts';
+import { UNIT_STATUS, formatMeters, describeRelative, type Relative, type Unit } from '../lib/core.ts';
 
 const props = defineProps<{
-    priority: number;
-    units: { unit: BoardUnit; rel: Relative; assigned: boolean; stale: boolean }[];
+    units: { unit: Unit; rel: Relative; assigned: boolean; stale: boolean }[];
 }>();
-defineEmits<{ pick: [name: string] }>();
+defineEmits<{ pick: [uid: string] }>();
 
 const SIZE = 260;
 const PAD = 22;
 const C = SIZE / 2;
 const R = C - PAD;   // outer ring, px
 
-// Outer ring = the next round distance past the farthest unit, so the picture uses its space;
-// capped so one unit across the venue doesn't squash the ones next to the call.
+// Outer ring = the next "round" distance past the farthest unit, so the picture uses its space;
+// capped so one unit across campus doesn't squash the ones next to the incident.
 const STEPS = [50, 100, 200, 300, 500, 750, 1000];
 const range = computed(() => {
-    const far = Math.max(0, ...props.units.map((u) => u.rel.meters));
-    return STEPS.find((s) => s >= far) ?? STEPS[STEPS.length - 1];
+    const far = Math.max(0, ...props.units.map(u => u.rel.meters));
+    return STEPS.find(s => s >= far) ?? STEPS[STEPS.length - 1];
 });
-const rings = computed(() => [0.5, 1].map((f) => ({ m: range.value * f, px: R * f })));
+const rings = computed(() => [0.5, 1].map(f => ({ m: range.value * f, px: R * f })));
 
 const placed = computed(() => props.units.map(({ unit, rel, assigned, stale }) => {
     const outside = rel.meters > range.value;
     const d = Math.min(rel.meters, range.value) / range.value * R;
     const a = rel.bearing * Math.PI / 180;
-    const def = unitStatus(unit);
     return {
-        name: unit.callsign,
+        uid: unit.uid,
         x: C + d * Math.sin(a),
         y: C - d * Math.cos(a),
-        color: def.color,
-        letter: def.letter,
-        label: unit.callsign.length > 12 ? unit.callsign.slice(0, 11) + '…' : unit.callsign,
-        title: unit.callsign + ' · ' + def.label + ' · ' + describeRelative(rel),
+        color: UNIT_STATUS[unit.status].color,
+        letter: UNIT_STATUS[unit.status].letter,
+        callsign: unit.callsign.length > 12 ? unit.callsign.slice(0, 11) + '…' : unit.callsign,
+        title: unit.callsign + ' · ' + UNIT_STATUS[unit.status].label + ' · ' + describeRelative(rel),
         outside, assigned, stale,
     };
 }));
 </script>
 
 <style scoped>
-.crowdcad-radar { display:block; width:100%; max-width:300px; margin:4px auto 0; background:#151515; border-radius:6px; }
+.iucad-radar { display:block; width:100%; max-width:300px; margin:4px auto 0; background:#151515; border-radius:6px; }
 .ring-label { fill:#777; font-size:10px; }
 .north { fill:#aaa; font-size:11px; font-weight:700; }
 .letter { font-size:11px; font-weight:800; pointer-events:none; }

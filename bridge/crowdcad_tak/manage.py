@@ -291,7 +291,7 @@ class Manager:
         clock = self._clock()
         via = f"CloudTAK: {actor}"
         expected = str(clock.ms)        # dispatch.new_call's id, unless that ms is already taken
-        previous = self.details.put(event_id, expected, details) if details else None
+        previous = self._store_put(event_id, expected, details) if details else None
 
         def action(ev):
             patch, call_id = dispatch.new_call(ev, form, via, clock)
@@ -307,13 +307,13 @@ class Manager:
             raise
         if details and result.get("callId") != expected:
             self.details.restore(event_id, expected, previous)
-            self.details.put(event_id, result["callId"], details)
+            self._store_put(event_id, result["callId"], details)
         return result
 
     def call_details(self, event_id, call_id, form, actor):
         """Set a call's TAK details: its point into CrowdCAD's location, the rest into notes."""
         details = self._clean(form)
-        previous = self.details.put(event_id, call_id, details)
+        previous = self._store_put(event_id, call_id, details)
         try:
             return self._dispatch(event_id, f"details for call {call_id}", actor,
                                   lambda ev: calldetails.apply(ev, call_id, details, f"CloudTAK: {actor}", self._clock()))
@@ -332,6 +332,15 @@ class Manager:
         name = (form or {}).get("callSign") if isinstance(form, dict) else None
         return self._dispatch(event_id, f"supervisor {name!r} added", actor,
                               lambda ev: dispatch.add_supervisor(ev, form, f"CloudTAK: {actor}", self._clock()))
+
+    def _store_put(self, event_id, call_id, details):
+        """The bridge's own copy of TAK details; saved before CrowdCAD is written, so a failure
+        here means nothing reached CrowdCAD."""
+        try:
+            return self.details.put(event_id, call_id, details)
+        except OSError as error:
+            raise ManageError(f"the bridge couldn't save the call details on its host ({error.strerror}: "
+                              f"{error.filename}); nothing was written to CrowdCAD", 500) from error
 
     @staticmethod
     def _clean(form):

@@ -94,6 +94,16 @@ board token doesn't work here). `X-TAK-User` (the CloudTAK username) is logged w
 | `POST …/events/{id}/supervisors` | Add Supervisor (handleSaveNewSupervisor): `{callSign, cert, name?, takUid?}` → `{team, member: "Name [Cert]", status: Available, location: Roaming}` |
 | `GET /api/v1/manage/w3w?words=a.b.c` or `?lat=&lon=` | `{words, lat, lon, nearestPlace}` via what3words with the bridge's `w3w_api_key` (secrets.json). `404` when no key; the key never leaves the bridge |
 
+### The CloudTAK dispatcher (`bridge/crowdcad_tak/dispatcher.py`, manage token)
+
+IU EMS Dispatch's own API shapes, served from CrowdCAD, so the CloudTAK plugin (IU's dispatcher
+as the template) needs only its backend client changed. CloudTAK's server half relays them.
+
+| Call | Does |
+|---|---|
+| `GET /api/v1/manage/dispatcher/board` | `{now, incidents: [{id, cadId, status, type, priority, location, floor, eventTitle, notes (the TAK description, never CrowdCAD notes), w3w, lat, lon, positionFrom, created, updated, assigned: [unit uid]}], units: [{uid, callsign, status, incident, since, lat, lon, seen (0 = never heard), device}]}` |
+| `POST /api/v1/manage/dispatcher/action` | `assign` / `unassign` `{id, unitUid}` · `status` `{id, status: DISP\|ONSC\|TRAN\|CLOSED\|CXL}` · `unit_status` `{id, unitUid, status: AVL\|RESP\|ONSC\|TRAN\|OOS}` · `create` `{incident: {type, priority, location, floor, notes, reportedBy, lat, lon, w3w}}` → `{id: "CC-012"}` · `add_unit` `{unit: {name, kind, cert?, takUid?}}` · `remove_unit` `{unitUid}`. Each is CrowdCAD's own handler (table in dispatcher.py's docstring); bad input is a 400 |
+
 **Notes are write-only from TAK.** Notes can hold patient details, so the bridge never reads them
 to send anywhere: the `[TAK]` line is a copy for people working in CrowdCAD's own screen, and the
 board and CoT read the bridge's store (`data_dir/call_details.json`). Tests: `bridge/tests/test_calldetails.py`.

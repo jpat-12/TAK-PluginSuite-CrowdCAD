@@ -13,7 +13,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import com.atakmap.android.crowdcad.cot.IucadUnit;
+import com.atakmap.android.crowdcad.model.Assignment;
 import com.atakmap.android.crowdcad.model.Board;
 import com.atakmap.android.crowdcad.model.Incident;
 import com.atakmap.android.crowdcad.model.IncidentStatus;
@@ -31,11 +31,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The CrowdCAD panel: this device's status bar, then open incidents (priority first, tap to
- * show on the map, "Respond" to take one), then units. UI only: data comes from the
- * {@link Board}, status changes go to the {@link StatusReporter}. The medic's status rides on
- * their PLI; the bridge writes each tap into CrowdCAD (bridge fieldstatus.py), linking this
- * phone to the unit named like its callsign if no one picked it as a contact.
+ * The CrowdCAD panel: this device's assignment (read-only), then open incidents (priority first,
+ * tap to show on the map), then units. UI only: data comes from the {@link Board}.
+ *
+ * Field users can't change status (Jon, 2026-11-25): there are no status buttons and no Respond.
+ * The one action is Acknowledge on a call assigned to this phone ({@link AckReporter}). The bridge
+ * logs it in CrowdCAD and links the phone to the unit named like its callsign if it isn't yet.
  */
 public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnStateListener, Board.Listener {
 
@@ -45,7 +46,7 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
 
     private final Context plugin;
     private final Board board;
-    private final StatusReporter reporter;
+    private final AckReporter acks;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Runnable render = this::render;
     private final Runnable tick = new Runnable() {
@@ -57,17 +58,16 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
     };
 
     private View root;
-    private LinearLayout statusRow;
-    private TextView statusLabel;
+    private TextView assignmentLabel;
     private LinearLayout incidentsBox;
     private LinearLayout unitsBox;
     private boolean visible;
 
-    public CrowdCadDropDown(MapView mapView, Context plugin, Board board, StatusReporter reporter) {
+    public CrowdCadDropDown(MapView mapView, Context plugin, Board board, AckReporter acks) {
         super(mapView);
         this.plugin = plugin;
         this.board = board;
-        this.reporter = reporter;
+        this.acks = acks;
         board.addListener(this);
     }
 
@@ -105,22 +105,15 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
         col.setPadding(pad, pad, pad, pad);
         scroll.addView(col);
 
-        statusLabel = text(col, "", true);
-        statusRow = new LinearLayout(plugin);
-        statusRow.setOrientation(LinearLayout.HORIZONTAL);
-        col.addView(statusRow);
-        for (UnitStatus s : UnitStatus.values()) {
-            Button b = button(statusRow, shortLabel(s), v -> setStatus(s));
-            b.setTag(s);
-            b.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        }
+        assignmentLabel = text(col, "", true);
 
         header(col, "Open incidents");
         incidentsBox = column(col);
         header(col, "Units");
         unitsBox = column(col);
-        TextView foot = text(col, "Your status taps update CrowdCAD dispatch. Not linked to a unit yet? Set your ATAK callsign "
-                + "to your CrowdCAD unit name (e.g. Team 1). Patient details stay in CrowdCAD.", false);
+        TextView foot = text(col, "Dispatch sets your status in CrowdCAD. Acknowledge tells dispatch you saw a call; "
+                + "it doesn't change your status. Not linked to a unit yet? Set your ATAK callsign to your CrowdCAD "
+                + "unit name (e.g. Team 1). Patient details stay in CrowdCAD.", false);
         foot.setPadding(0, dp(12), 0, 0);
         return scroll;
     }
@@ -129,20 +122,21 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
         if (root == null)
             return;
         long now = System.currentTimeMillis();
-        IucadUnit me = reporter.current();
-        statusLabel.setText("My status: " + me.status.label + (me.incidentId.isEmpty() ? "" : " · " + me.incidentId));
-        for (int i = 0; i < statusRow.getChildCount(); i++) {
-            View b = statusRow.getChildAt(i);
-            b.setAlpha(b.getTag() == me.status ? 1f : 0.55f);
-        }
-
         incidentsBox.removeAllViews();
         List<Incident> open = board.openIncidents(now);
         if (open.isEmpty())
             text(incidentsBox, "No open incidents.", false);
         String myUid = MapView.getDeviceUid();
-        for (Incident i : open)
-            incidentCard(i, now, i.assigned.contains(myUid));
+        String myCallsign = getMapView().getDeviceCallsign();
+        List<String> mine = new ArrayList<>();
+        for (Incident i : open) {
+            boolean isMine = Assignment.isMine(i.assigned, myUid, myCallsign);
+            if (isMine)
+                mine.add(i.id);
+            incidentCard(i, now, isMine);
+        }
+        assignmentLabel.setText(mine.isEmpty() ? "No call assigned to you"
+                : "Assigned to you: " + android.text.TextUtils.join(", ", mine));
 
         unitsBox.removeAllViews();
         List<Unit> units = board.units(now);
@@ -186,20 +180,20 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
                     .setTextColor(color(incidentColor(IncidentStatus.DISP)));
         card.setOnClickListener(v -> centreOn(i));
 
-        if (!i.id.equals(reporter.current().incidentId)) {
-            Button respond = button(card, mine ? "Respond (assigned)" : "Respond", v -> {
-                reporter.set(UnitStatus.RESP, i.id);
+        if (!mine)
+            return;
+        Long ackedAt = acks.ackedAt(i.id);
+        if (ackedAt != null) {
+            text(card, "Acknowledged " + ago(ackedAt, now) + " ago", false)
+                    .setTextColor(color(R.color.cc_avl));
+        } else {
+            Button ack = button(card, "Acknowledge", v -> {
+                acks.acknowledge(i.id);
                 render();
             });
-            respond.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+            ack.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT));
         }
-    }
-
-    private void setStatus(UnitStatus status) {
-        // Keep the incident being worked through On Scene / Transporting; AVL/OOS clear it.
-        reporter.set(status, reporter.current().incidentId);
-        render();
     }
 
     private void centreOn(Incident i) {
@@ -216,16 +210,6 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
     static String ago(long ms, long now) {
         long minutes = Math.max(0, (now - ms) / 60_000);
         return minutes < 60 ? minutes + "m" : (minutes / 60) + "h" + String.format("%02d", minutes % 60);
-    }
-
-    private static String shortLabel(UnitStatus s) {
-        switch (s) {
-            case AVL: return "AVL";
-            case RESP: return "RESP";
-            case ONSC: return "ON SC";
-            case TRAN: return "TRAN";
-            default: return "OOS";
-        }
     }
 
     private static int incidentColor(IncidentStatus s) {

@@ -32,53 +32,49 @@ CrowdCAD unmodified.
 
 - **Map:** calls show at their CrowdCAD post, teams as friendly units, and dispatch zones as
   shapes. Every ATAK, WinTAK or iTAK user in the group sees these markers, plugin or not.
-- **Panel** (toolbar → CrowdCAD): **my status** buttons, open incidents (P1 first, colour =
-  status, a thick border = assigned to you), then units. Tap a card and the map centres on it.
-- **Assignment alert:** when dispatch assigns your team (your device is mapped to it on the
-  console), the phone vibrates, shows a toast, and opens the call. **Respond** sets you
-  Responding on that call.
-- **Your status travels on your own position report**, so every other plugin user sees it, and
-  **CrowdCAD follows your taps** when your device carries a unit (picked as a contact in
-  CloudTAK's New event, or mapped on the console page): *Responding / On scene / Transporting*
-  set that on your call (*Respond* on a call you weren't given assigns you to it); *Available*
-  clears you from your call (CrowdCAD closes it "Resolved" if you were the last unit) or makes
-  you Available; *Out of service* puts you On Break when you're not on a call. Logged "via ATAK:
-  <callsign>". Only a new tap counts, so a dispatcher's later change in CrowdCAD stands.
+- **Panel** (toolbar → CrowdCAD): your assignment (read-only), open incidents (P1 first,
+  colour = status, a thick border = assigned to you), then units. Tap a card and the map centres on it.
+- **Assignment alert:** when dispatch assigns your team, the phone vibrates, shows a toast, and
+  opens the call.
+- **Acknowledge** is the medic's one action, on a call assigned to them. It adds a line to the
+  call's CrowdCAD log ("Team 1 acknowledged the call. (via ATAK: MEDIC1)") and changes nothing
+  else. **Medics can't set status** (decided 2026-11-25): dispatch sets it in CrowdCAD or the
+  CloudTAK console. A phone not linked to its unit yet is linked by its first Acknowledge, when
+  its ATAK callsign matches the unit name ("Team 1" ↔ TEAM1).
 - No network permission and nothing to configure: the plugin reads CoT the device already gets.
 
-### CloudTAK and WebTAK: command staff, medical branch, EOC
+### CloudTAK: CrowdCAD Dispatch (the dispatcher)
+
+The CloudTAK plugin is **IU EMS Dispatch** (TAK-PluginSuite-IndianaUniversity/CloudTAK-Eventcad)
+used as the template, without IU branding, on the CrowdCAD bridge. Menu → **CrowdCAD Dispatch**:
+
+- **Board** (black background): unit counts by status (tap to filter), **Incidents** and **Units**,
+  each row filled with its status colour. Calls: **red** = no unit sent yet, amber dispatched, blue
+  on scene, purple transporting. Units: green available, amber responding, red on scene /
+  transporting, grey out of service; a phone not heard for 3 min fades ("not heard yet" if never).
+- **Incident**: location, floor, the position warning, what3words, **units around it** (radar),
+  **Dispatched / On Scene / Transporting / Close / Cancel**, the units on it with their own
+  **Available / Responding / On Scene / Transporting / Out of Service** buttons, and the **closest
+  units** with **Assign**.
+- **+ New** call: type, priority, location, floor, a map point (click, what3words, coordinates or
+  map centre), complaint, reported by. The point becomes the call's CrowdCAD `location`
+  ("lat, lon"); place, floor and what3words go into one `[TAK]` line of its notes.
+- **Units + Add / ✕**: add a team or supervisor, optionally **carried by a TAK contact** (its
+  phone's position is the unit, and assignments alert that phone); remove one (it leaves any call).
+- **Map**: a dashed line from every assigned unit to its call, in the unit's status colour.
+
+Every button is CrowdCAD's own dispatch handler run by the bridge (`bridge/crowdcad_tak/dispatcher.py`),
+saved compare-and-swap and logged "via CloudTAK: <user>". Close / Cancel resolve the call; its marker
+then leaves every TAK map at once (CLOSED, then TAK's delete). The bridge token stays on CloudTAK's
+server; nothing is typed into the browser. Calls are added to the **first live event** on the board.
+
+### WebTAK: command staff, medical branch, EOC
 
 ![CloudTAK and WebTAK mockups: the same board, open calls, teams, and a "Not on the map" warning](docs/images/web-clients.svg)
 
-Both web clients show the **same board**: open calls, teams, and anything CrowdCAD couldn't
-place on the map. It refreshes every 5 s. In CloudTAK, tapping a call or team flies the map to
-it. The markers themselves reach both maps as ordinary CoT.
-
-**Dispatching:** each event has a **Dispatch** button that opens CrowdCAD's own dispatch screen
-for that event over the map (CloudTAK: a floating pane; WebTAK: a floating window; both
-draggable and resizable, with *Open in new window*). The dispatcher signs in to CrowdCAD there
-as themselves, so assigning teams, status changes, new calls and resolving all follow
-CrowdCAD's own rules and land in its call log under their name. The board and the bridge stay
-read-only. The button appears once the bridge knows CrowdCAD's site (`--with-crowdcad` sets it;
-otherwise *CrowdCAD app URL* on the console page). Dispatchers need a CrowdCAD account with
-access to the event (shared with them, or an org event).
-
-**Native dispatch (CloudTAK):** *Dispatch* on an event opens CrowdCAD dispatch inside CloudTAK:
-**New call** (post suggestions, 📍 nearest post to the map center, chief complaint, priority,
-optional unit), every open call with each unit's status on it (En Route → On Scene → Transporting →
-Delivered/Refusal/NMM/…, closing the call for everyone exactly as CrowdCAD does) and an assign
-picker, and every unit's availability and post. Tap a call or unit to fly to it. Each change is
-CrowdCAD's own logic, saved compare-and-swap (never over a newer change made in CrowdCAD) and
-logged "via CloudTAK: <user>". The *CrowdCAD* button still opens CrowdCAD's own screen. The
-bridge's CrowdCAD account must be allowed to update the event: events created from CloudTAK are,
-otherwise make the event an org event in CrowdCAD (or share it with the bridge account).
-
-**New event (CloudTAK):** *+ New event* on the CrowdCAD panel → name, date, a venue built in
-CrowdCAD, and your TAK contacts, each picked as a **team** or **supervisor** (renamable). The event
-is created in CrowdCAD as an org event (every CrowdCAD user can dispatch it), and each unit is
-carried by that contact's device: the phone's own position is the unit on the map, and dispatch
-assignments alert it (ATAK plugin). Events created this way get an **End** button. Pick a venue
-with a GeoJSON-imported map (the list says when one isn't), or nothing reaches the TAK map.
+The WebTAK plugin shows the read-only board: open calls, teams, and anything CrowdCAD couldn't
+place on the map, refreshed every 5 s. Its **Dispatch** button opens CrowdCAD's own dispatch
+screen in a floating window (signed in as the dispatcher). The markers reach every map as CoT.
 
 ### infra-TAK console: the operator's view
 
@@ -259,7 +255,8 @@ that carries a device.
    it in red with *no unit*.
 2. Dispatch assigns Team 2. Team 2's phone vibrates and opens the call, and the call turns
    *Dispatched* on every board.
-3. The medic taps **Respond**. Every ATAK plugin user sees them *Responding*.
+3. The medic taps **Acknowledge**. The call's CrowdCAD log shows they saw it. Dispatch sets
+   them *En Route* in CrowdCAD.
 4. The team goes *On Scene*, then *Transporting*, in CrowdCAD. The call and the team change
    colour on every client.
 5. The call is resolved (Delivered, Refusal, Treat and Release…). It leaves every board at
@@ -352,28 +349,22 @@ infratak/                       infra-TAK integration (never edits infra-TAK's t
   lib.sh, heal.sh, systemd/     shared shell; re-apply after Caddyfile rewrites / "Update Now"; units
 atak/                           ATAK plugin (Java, ATAK-CIV 5.6 or 5.7 SDK via atak.version, no network permission)
   app/src/main/java/com/atakmap/android/crowdcad/
-    CrowdCadMapComponent.java   owns the board, CoT handlers, status reporter, panel; assignment alert
-    CrowdCadDropDown.java       the panel: my status, open incidents (tap → map, Respond), units
+    CrowdCadMapComponent.java   owns the board, CoT handlers, ack reporter, icons, panel; assignment alert
+    CrowdCadDropDown.java       the panel: my assignment, open incidents (tap → map, Acknowledge), units
     IncidentHandler.java, UnitHandler.java   __iucad_* details from any source → Board
-    StatusReporter.java         my status on my own PLI (persisted across restarts)
+    AckReporter.java            Acknowledge → <__crowdcad_ack> on my own PLI (acked ids persisted)
     cot/                        IucadIncident, IucadUnit: parse/serialise (pure, tested)
     model/                      Board (newest wins, closed stays closed, stale expires), Incident, Unit, statuses
   app/src/test/                 JVM tests; resources/bridge-demo.cot is real bridge output
 cloudtak/                       CloudTAK plugin
-  plugin/                       web half → <CloudTAK>/…/plugins/crowdcad/
-    components/CrowdCadPanel.vue    the dispatcher: Calls, Teams, Supervisors (CrowdCAD's words), status filter, screens
-    components/CallDetail.vue       one call: location + Set location, units-around radar, status on call, closest teams
-    components/AddCallForm.vue      CrowdCAD's Add Call + map point / what3words / coordinates / post, floor, description
-    components/AddUnitForm.vue      CrowdCAD's Add Team / Add Supervisor, optionally carried by a TAK contact
-    components/LocationEditor.vue   where a call is (lib/location.ts says what each choice becomes in CrowdCAD)
-    components/UnitRadar.vue, IncidentIcon.vue, UnitBadge.vue   radar; priority-tinted EMS icon; status letter
-    components/NewEventPanel.vue, DispatchFrame.vue              New event form; CrowdCAD's own screen in a pane
-    lib/core.ts                     pure display rules: status words/colours, floors, distances, closest units
-    lib/store.ts                    the one poll loop + latest board/dispatch view (nothing edited locally)
-    lib/client.ts, types.ts         server-half calls; board + manage API types (docs/API.md)
-    lib/incident-icon*.ts           the ATAK plugin's EMS icon, tinted per priority like IncidentStyler (generated data)
+  plugin/                       web half → <CloudTAK>/…/plugins/crowdcad/ — IU EMS Dispatch used as the template
+    components/App.vue              the dispatcher: board, incident, + New call, + Add unit (IU's screens)
+    components/UnitRadar.vue        units around a call, north up (IU's radar)
+    lib/bridge.ts                   CrowdCAD backend: board + actions through the server half (one poll loop)
+    lib/core.ts                     pure display rules: status colours, floors, distances, closest units
+    lib/lines.ts                    dashed unit → call lines on the map, in the unit's status colour
+    lib/store.ts, map-pick.ts, plugin-api.ts   latest board + view state; map click/pin; the PluginAPI
   server/plugin-crowdcad.ts     server half: relays board + manage API with tokens that never reach the browser
-  make_incident_icon.py         regenerates lib/incident-icon-data.ts from the ATAK drawable
   install.sh, check-in-cloudtak.mjs   install into either CloudTAK layout; run CloudTAK's build gates
 webtak/                         WebTAK plugin (plain DOM, WebTAK 4.10 drawer API, floating fallback)
   plugin/                       index.js (registration) + src/ (config, client, format, ui, styles, core)
@@ -390,9 +381,10 @@ webtak/                         WebTAK plugin (plain DOM, WebTAK 4.10 drawer API
 | Bridge: realtime with polling fallback, mutual TLS, PHI kept out | ✅ | TLS tested against a local server with a makeCert-style encrypted key |
 | Board API + Caddy site | ✅ | Token + CORS + `/status` never proxied; tested |
 | infra-TAK console page, card, sidebar | ✅ | Verified on infra-TAK v0.1.0 → current HEAD, **alongside Aleph's hook** |
-| ATAK plugin: board, my status on PLI, assignment alert, tap → map | 🔧 Built | Debug + release APKs build; 9 JVM tests pass; **not yet on a device** |
-| CloudTAK plugin | 🔧 Built | Same structure as Aleph's (which passes CloudTAK 13.14.1's gates); **CloudTAK's lint + vue-tsc not yet run on this one** |
-| CloudTAK dispatcher (0.1.5): IU EMS Dispatch's design, CrowdCAD's words | 🔧 Built | Calls / Teams / Supervisors, Add Call, Add Team, Add Supervisor, Set location (post, map point, what3words, coordinates, map centre), floor, units-around radar, closest teams + Assign, status filter, stale units fade, priority-tinted EMS icons. Bridge side unit-tested (`test_calldetails.py`); Vue compiled + type-checked against stubs only; **not yet in a live CloudTAK** |
+| ATAK plugin: board, Acknowledge on PLI, assignment alert, tap → map | 🔧 Built | Debug + release APKs build; 9 JVM tests pass; **not yet on a device** |
+| CloudTAK plugin: CrowdCAD Dispatch (IU EMS Dispatch template) | ✅ | Live on ILWG's CloudTAK 13.102.0 2026-11-25; passes its lint + vue-tsc gates. Board, incident, radar, closest units, assign, unit status on a call, + New call, + Add / ✕ units, unit → call lines |
+| Call markers: CrowdCAD iconset (EMS P1/P2/P3) | 🔧 Built | Calls carry `<usericon>`; CloudTAK needs the iconset imported once; ATAK gets it with the next plugin build |
+| Closed / cancelled calls leave every map at once | 🔧 Built | CLOSED then TAK's delete (`t-x-d-d` + `__forcedelete`); unit-tested, **not yet deployed** |
 | Call location → CrowdCAD | 🔧 Built | A point becomes the call's CrowdCAD `location` ("lat, lon"); description/floor/what3words become one `[TAK]` notes line. Notes stay write-only from TAK (PHI) |
 | what3words | 🔧 Built | Optional: set `w3w_api_key` in the bridge's secrets.json by hand (no console field yet) |
 | WebTAK plugin | 🔧 Built | Registration shape from WebTAK-Plugin-Channels (in production); bundle boot-tested in a stub; **not yet in a live WebTAK** |
@@ -402,7 +394,7 @@ webtak/                         WebTAK plugin (plain DOM, WebTAK 4.10 drawer API
 | Phase 2: infra-TAK deploys CrowdCAD itself | 🔧 Built | `install.sh --with-crowdcad`; first run on a production infra-TAK host 2026-11-19 (see VERIFY.md) |
 | Phase 2b: offline field node | ⬜ | Same install on a LAN box; needs a LAN host name instead of a public one |
 | Phase 3: TAK marker → new CrowdCAD call | ⬜ Designed | Blocked on safe writes (CrowdCAD's `calls` is one array, no concurrency check); plan: a PocketBase hook |
-| Phase 4: medic status from ATAK → CrowdCAD team status | 🔧 Built | `fieldstatus.py`, 2026-11-19; compare-and-swap writes; unlinked phones link themselves by callsign; unit-tested, **not yet tapped from a real device** |
+| Phase 4: field input from ATAK → CrowdCAD | 🔧 Built, narrowed | 2026-11-25: Acknowledge only (one call-log line), no field status changes; `fieldstatus.py` compare-and-swap writes; unlinked phones link themselves by callsign; unit-tested, **not yet tapped from a real device** |
 | Native dispatch + New event from CloudTAK | ✅ | Verified end to end on a production infra-TAK host 2026-11-19 (self-test event, since deleted) |
 | what3words → call location | ⬜ | Server-side key only (IU rule); rides on Phase 3 |
 

@@ -9,6 +9,7 @@ import static org.junit.Assert.assertTrue;
 import com.atakmap.android.crowdcad.cot.Attrs;
 import com.atakmap.android.crowdcad.cot.IucadIncident;
 import com.atakmap.android.crowdcad.cot.IucadUnit;
+import com.atakmap.android.crowdcad.model.Assignment;
 import com.atakmap.android.crowdcad.model.Board;
 import com.atakmap.android.crowdcad.model.Incident;
 import com.atakmap.android.crowdcad.model.IncidentStatus;
@@ -249,10 +250,23 @@ public class CotAndBoardTest {
         IconsetInstaller.Header h = IconsetInstaller.parseHeader(xml);
         assertNotNull(h);
         assertEquals("abee9e5e3aec4b62a5bbb27c78fcb9b27e0140919c7ff132c8c6fa41ab2b0c78", h.uid);
-        assertEquals(1, h.version);
+        assertEquals(2, h.version);                                     // 2: + EMS P1/P2/P3 (build_iconset.py)
         assertNull(IconsetInstaller.parseHeader("<iconset name=\"x\" version=\"1\">"));    // no uid
         assertNull(IconsetInstaller.parseHeader("<iconset uid=\"u\" version=\"one\">"));   // bad version
         assertNull(IconsetInstaller.parseHeader("<other uid=\"u\" version=\"1\">"));
+    }
+
+    @Test
+    public void assignedToMe_byDeviceUid_orUnlinkedTeamMatchingCallsign() {
+        List<String> linked = Arrays.asList("ANDROID-medic1");
+        assertTrue(Assignment.isMine(linked, "ANDROID-medic1", "whatever"));
+        // Not linked yet: the bridge names the team; "Team 1" matches callsign TEAM1 the way the bridge does.
+        List<String> unlinked = Arrays.asList("crowdcad-e1f2g3h4i5j6k7l-team-team-1");
+        assertTrue(Assignment.isMine(unlinked, "ANDROID-medic1", "TEAM1"));
+        assertTrue(Assignment.isMine(unlinked, "ANDROID-medic1", "Team 1"));
+        assertFalse(Assignment.isMine(unlinked, "ANDROID-medic1", "Team 11"));
+        assertFalse(Assignment.isMine(unlinked, "ANDROID-medic1", ""));
+        assertFalse(Assignment.isMine(Arrays.asList("ANDROID-other-team-team1"), "ANDROID-medic1", "TEAM1"));  // not a bridge uid
     }
 
     @Test

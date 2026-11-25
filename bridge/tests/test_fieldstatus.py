@@ -1,4 +1,5 @@
-"""fieldstatus.py: a medic's taps in the ATAK plugin become CrowdCAD changes, once per tap."""
+"""fieldstatus.py: a medic's Acknowledge tap in the ATAK plugin → one CrowdCAD call-log line, once
+per tap. Field users never change status (Jon, 2026-11-25)."""
 
 import threading
 import unittest
@@ -12,76 +13,57 @@ NOW = 1795100000000
 DEVICE = "ANDROID-medic1"
 
 
-def pli(status, since, incident="", uid=DEVICE, callsign="MEDIC1"):
-    inc = f' incident="{incident}"' if incident else ""
+def pli(incident, at, uid=DEVICE, callsign="MEDIC1"):
+    """A position report carrying the plugin's last Acknowledge."""
     return (f'<event version="2.0" uid="{uid}" type="a-f-G-U-C" how="m-g" time="t" start="t" stale="t">'
             f'<point lat="1" lon="1" hae="0" ce="1" le="1"/><detail><contact callsign="{callsign}"/>'
-            f'<__iucad_unit v="1" status="{status}"{inc} since="{since}"/></detail></event>').encode()
+            f'<__crowdcad_ack incident="{incident}" at="{at}"/></detail></event>').encode()
+
+
+def old_status_pli(status, since, uid=DEVICE):
+    """A 0.1.5 plugin's status tap (<__iucad_unit>): must change nothing now."""
+    return (f'<event version="2.0" uid="{uid}" type="a-f-G-U-C"><detail><contact callsign="MEDIC1"/>'
+            f'<__iucad_unit v="1" status="{status}" incident="CC-001" since="{since}"/></detail></event>').encode()
 
 
 class ParseTest(unittest.TestCase):
     def test_plugin_report(self):
-        self.assertEqual(fieldstatus.parse(pli("ONSC", NOW, "CC-001")),
-                         {"uid": DEVICE, "callsign": "MEDIC1", "status": "ONSC", "incident": "CC-001", "since": NOW})
+        self.assertEqual(fieldstatus.parse(pli("CC-001", NOW)),
+                         {"uid": DEVICE, "callsign": "MEDIC1", "incident": "CC-001", "at": NOW})
 
     def test_ignores_everything_else(self):
         self.assertIsNone(fieldstatus.parse(b'<event uid="x"><detail><contact callsign="A"/></detail></event>'))
-        self.assertIsNone(fieldstatus.parse(b"<event uid='x'><detail><__iucad_unit status='AVL'"))     # truncated
+        self.assertIsNone(fieldstatus.parse(old_status_pli("ONSC", NOW)))                 # status taps: gone
+        self.assertIsNone(fieldstatus.parse(b"<event uid='x'><detail><__crowdcad_ack incident='CC-1'"))  # truncated
+        self.assertIsNone(fieldstatus.parse(pli("", NOW)))                                # no incident
+        self.assertIsNone(fieldstatus.parse(pli("CC-001", 0)))                            # no time
         self.assertIsNone(fieldstatus.parse(b'<!DOCTYPE x [<!ENTITY a "aaa">]><event uid="x"><detail>'
-                                            b'<__iucad_unit status="AVL" since="1"/></detail></event>'))
+                                            b'<__crowdcad_ack incident="CC-1" at="1"/></detail></event>'))
 
 
 class PlanTest(unittest.TestCase):
-    """Each tap → CrowdCAD's own action (dispatch.py), as agreed with Jon 2026-11-19."""
-
     def setUp(self):
-        self.prefix = "CC"
-        self.ev = event()
+        self.ev = apply(event(), dispatch.assign(event(), "c1", "Team 1", None, CLOCK))
         self.cfg = dict(config.DEFAULTS)
+        self.incident = mapping.incident_id(self.ev["calls"][0], "CC")
 
-    def plan(self, ev, status, incident=""):
-        report = {"status": status, "incident": incident, "since": NOW, "uid": DEVICE, "callsign": "MEDIC1"}
+    def plan(self, ev, incident):
+        report = {"incident": incident, "at": NOW, "uid": DEVICE, "callsign": "MEDIC1"}
         return fieldstatus.plan(ev, self.cfg, "Team 1", report, "ATAK: MEDIC1", CLOCK)
 
-    def test_on_scene_on_the_assigned_call(self):
-        ev = apply(self.ev, dispatch.assign(self.ev, "c1", "Team 1", None, CLOCK))
-        ev = apply(ev, self.plan(ev, "ONSC", mapping.incident_id(ev["calls"][0], self.prefix)))
-        self.assertEqual((ev["calls"][0]["status"], unit(ev, "Team 1")["status"]), ("On Scene", "On Scene"))
-        self.assertIn("(via ATAK: MEDIC1)", ev["calls"][0]["log"][-1]["message"])
-        self.assertEqual(self.plan(ev, "ONSC", "CC-001"), {})                  # already so: nothing to write
+    def test_ack_logs_one_line_and_changes_no_status(self):
+        before = (self.ev["calls"][0]["status"], unit(self.ev, "Team 1")["status"], len(self.ev["calls"][0]["log"]))
+        ev = apply(self.ev, self.plan(self.ev, self.incident))
+        self.assertEqual((ev["calls"][0]["status"], unit(ev, "Team 1")["status"]), before[:2])
+        self.assertEqual(len(ev["calls"][0]["log"]), before[2] + 1)
+        self.assertIn("Team 1 acknowledged the call. (via ATAK: MEDIC1)", ev["calls"][0]["log"][-1]["message"])
+        self.assertEqual(set(self.plan(self.ev, self.incident)), {"calls"})               # only the call is written
 
-    def test_respond_self_dispatches(self):
-        ev = apply(self.ev, self.plan(self.ev, "RESP", "CC-001"))
-        self.assertEqual((ev["calls"][0]["assignedTeam"], unit(ev, "Team 1")["status"]), (["Team 1"], "En Route"))
-
-    def test_transporting_without_incident_uses_their_call(self):
-        ev = apply(self.ev, dispatch.assign(self.ev, "c1", "Team 1", None, CLOCK))
-        ev = apply(ev, self.plan(ev, "TRAN"))
-        self.assertEqual(ev["calls"][0]["status"], "Transporting")
-
-    def test_available_on_a_call_clears_them(self):
-        ev = apply(self.ev, dispatch.assign(self.ev, "c1", "Team 1", None, CLOCK))
-        ev = apply(ev, self.plan(ev, "AVL"))
-        self.assertEqual(ev["calls"][0]["assignedTeam"], [])
-        self.assertEqual(ev["calls"][0]["status"], "Resolved")                 # last unit: CrowdCAD closes it
-        self.assertEqual((unit(ev, "Team 1")["status"], unit(ev, "Team 1")["location"]), ("Available", "Gate A"))
-
-    def test_available_and_out_of_service_off_a_call(self):
-        ev = apply(self.ev, self.plan(self.ev, "OOS"))
-        self.assertEqual(unit(ev, "Team 1")["status"], "On Break")
-        ev = apply(ev, self.plan(ev, "AVL"))
-        self.assertEqual(unit(ev, "Team 1")["status"], "Available")
-        self.assertEqual(self.plan(ev, "AVL"), {})
-
-    def test_out_of_service_on_a_call_is_left_to_dispatch(self):
-        ev = apply(self.ev, dispatch.assign(self.ev, "c1", "Team 1", None, CLOCK))
-        self.assertEqual(self.plan(ev, "OOS"), {})
-
-    def test_unknown_or_closed_incident(self):
+    def test_unknown_call_or_unit_not_on_it(self):
         with self.assertRaises(dispatch.DispatchError):
-            self.plan(self.ev, "ONSC", "CC-999")
+            self.plan(self.ev, "CC-999")
         with self.assertRaises(dispatch.DispatchError):
-            self.plan(self.ev, "ONSC")                                          # not on any call
+            self.plan(event(), self.incident)                                          # Team 1 not assigned
 
 
 class FakePublisher:
@@ -105,28 +87,36 @@ class FakeStore:
 
 
 class WatcherTest(unittest.TestCase):
-    def watcher(self, bound=True, now=NOW, free=(), **cfg):
+    def watcher(self, bound=True, now=NOW, free=(), assigned=True, **cfg):
         self.store = FakeStore()
+        if assigned:
+            self.store.event = apply(self.store.event, dispatch.assign(self.store.event, "c1", "Team 1", None, CLOCK))
         self.pub = FakePublisher(bound, free)
         return fieldstatus.FieldStatus(self.pub, self.store, {**config.DEFAULTS, **cfg}, log=lambda line: None,
                                        now_ms=lambda: now)
 
     def test_one_write_per_tap(self):
         w = self.watcher()
-        self.assertTrue(w.handle(pli("RESP", NOW - 1000, "CC-001")))
-        self.assertIsNone(w.handle(pli("RESP", NOW - 1000, "CC-001")))        # same tap, next PLI
-        self.assertTrue(w.handle(pli("ONSC", NOW, "CC-001")))
-        self.assertEqual(self.store.writes, 2)
-        self.assertEqual(self.store.event["calls"][0]["status"], "On Scene")
+        self.assertTrue(w.handle(pli("CC-001", NOW - 1000)))
+        self.assertIsNone(w.handle(pli("CC-001", NOW - 1000)))               # same tap, next PLI
+        self.assertEqual(self.store.writes, 1)
+        self.assertIn("acknowledged", self.store.event["calls"][0]["log"][-1]["message"])
+
+    def test_old_status_taps_change_nothing(self):
+        w = self.watcher()
+        w.offer(old_status_pli("AVL", NOW))
+        self.assertIsNone(w.handle(old_status_pli("AVL", NOW)))
+        self.assertEqual(self.store.writes, 0)
+        self.assertEqual(w._queue.qsize(), 0)                                  # not even queued
 
     def test_old_tap_not_replayed_after_restart(self):
         w = self.watcher(now=NOW + fieldstatus.FRESH_MS + 1)
-        self.assertIsNone(w.handle(pli("OOS", NOW)))
+        self.assertIsNone(w.handle(pli("CC-001", NOW)))
         self.assertEqual(self.store.writes, 0)
 
     def test_unbound_device_and_other_traffic_ignored(self):
         w = self.watcher(bound=False)
-        self.assertIsNone(w.handle(pli("OOS", NOW)))
+        self.assertIsNone(w.handle(pli("CC-001", NOW)))
         self.assertIsNone(w.handle(b'<event uid="x"/>'))
         self.assertEqual(self.store.writes, 0)
 
@@ -138,22 +128,22 @@ class WatcherTest(unittest.TestCase):
 
     def test_unlinked_phone_links_itself_by_callsign(self):
         w = self.watcher(bound=False, free=["Team 1", "Team 2"])
-        self.assertTrue(w.handle(pli("RESP", NOW, "CC-001", callsign="TEAM1")))     # "Team 1" ↔ TEAM1
-        self.assertEqual(unit(self.store.event, "Team 1")["takUid"], DEVICE)       # saved with the tap, one write
-        self.assertEqual((self.store.writes, unit(self.store.event, "Team 1")["status"]), (1, "En Route"))
+        self.assertTrue(w.handle(pli("CC-001", NOW, callsign="TEAM1")))       # "Team 1" ↔ TEAM1
+        self.assertEqual(unit(self.store.event, "Team 1")["takUid"], DEVICE)   # saved with the ack, one write
+        self.assertEqual(self.store.writes, 1)
         self.assertEqual(w.heard, {DEVICE: NOW})
 
     def test_no_link_when_callsign_matches_nothing_or_is_off(self):
         w = self.watcher(bound=False, free=["Team 2"])
-        self.assertIsNone(w.handle(pli("AVL", NOW, callsign="TEAM1")))
+        self.assertIsNone(w.handle(pli("CC-001", NOW, callsign="TEAM1")))
         w = self.watcher(bound=False, free=["Team 1"], claim_by_callsign=False)
-        self.assertIsNone(w.handle(pli("AVL", NOW, callsign="Team 1")))
+        self.assertIsNone(w.handle(pli("CC-001", NOW, callsign="Team 1")))
         self.assertEqual(self.store.writes, 0)
 
     def test_ambiguous_callsign_links_nothing(self):
         w = self.watcher(bound=False, free=["Team 1"])
         self.pub.events["other0000000000"] = {"name": "U", "ended": False, "free_units": ["TEAM 1"], "device_teams": []}
-        self.assertIsNone(w.handle(pli("AVL", NOW, callsign="Team 1")))
+        self.assertIsNone(w.handle(pli("CC-001", NOW, callsign="Team 1")))
 
     def test_unit_taken_meanwhile_is_refused(self):
         ev = event()
@@ -164,15 +154,18 @@ class WatcherTest(unittest.TestCase):
 
     def test_errors_are_reported_not_raised(self):
         w = self.watcher()
-        self.assertFalse(w.handle(pli("ONSC", NOW, "CC-999")))
+        self.assertFalse(w.handle(pli("CC-999", NOW)))
         self.assertIn("CC-999", w.last_error)
+        w = self.watcher(assigned=False)
+        self.assertFalse(w.handle(pli("CC-001", NOW)))                          # not on the call: no log line
+        self.assertEqual(self.store.writes, 0)
 
 
 class StreamTest(unittest.TestCase):
     def test_tak_stream_is_split_into_events(self):
         got = []
         client = TakClient("127.0.0.1", 1, "c", "k", "a", on_message=got.append)
-        one, two = pli("AVL", 1), pli("ONSC", 2)
+        one, two = pli("CC-001", 1), pli("CC-002", 2)
         stream = b'<?xml version="1.0"?>' + one + two
         client._feed(stream[:50])
         client._feed(stream[50:-10])
@@ -181,7 +174,7 @@ class StreamTest(unittest.TestCase):
 
     def test_handler_errors_never_break_the_link(self):
         client = TakClient("127.0.0.1", 1, "c", "k", "a", on_message=lambda m: 1 / 0)
-        client._feed(pli("AVL", 1))
+        client._feed(pli("CC-001", 1))
         self.assertIn("ZeroDivisionError", client.last_error)
 
 

@@ -132,9 +132,38 @@ class PublisherTest(unittest.TestCase):
             elif action == "unselected":
                 event["status"] = "draft"
             pub.on_change("delete" if action == "delete" else "update", event)
-            self.assertEqual(set(by_uid(sent)), live, action)
+            out = by_uid(sent)
+            # every live marker: its CLOSED message, then TAK's delete for it (t-x-d-d + __forcedelete)
+            self.assertEqual({u for u in out if not u.endswith(".delete")}, live, action)
+            self.assertEqual({u for u in out if u.endswith(".delete")}, {u + ".delete" for u in live}, action)
+            for uid in live:
+                delete = out[uid + ".delete"]
+                self.assertEqual((delete.get("type"), delete.find("detail/link").get("uid")), ("t-x-d-d", uid), action)
+                self.assertIsNotNone(delete.find("detail/__forcedelete"), action)
             self.assertTrue(all(e["done"] for e in pub.sent.values()), action)
             self.assertEqual(pub.status()["events"], [], action)
+
+    def test_closed_call_is_deleted_from_every_map_right_after_closing(self):
+        pub, sent, clock = publisher()
+        pub.apply(demo())
+        sent.clear()
+        event = demo()
+        event["calls"][0]["status"] = "Resolved"              # c1 closed in CrowdCAD
+        clock.ms += 1000
+        pub.apply(event)
+        uids = [ET.fromstring(m).get("uid") for m in sent]
+        self.assertEqual(uids[uids.index(C1) + 1], C1 + ".delete")   # CLOSED first, then the delete
+        self.assertEqual(by_uid(sent)[C1].find("detail/__iucad_incident").get("status"), "CLOSED")
+        pub.heartbeat()
+        self.assertNotIn(C1, [ET.fromstring(m).get("uid") for m in sent[len(uids):]])   # never re-sent
+
+    def test_delete_can_be_switched_off(self):
+        pub, sent, clock = publisher(delete_closed=False)
+        pub.apply(demo())
+        event = demo()
+        event["calls"][0]["status"] = "Resolved"
+        pub.apply(event)
+        self.assertFalse(any(ET.fromstring(m).get("type") == "t-x-d-d" for m in sent))
 
     def test_resync_retires_events_missing_from_listing(self):
         pub, sent, _ = publisher()

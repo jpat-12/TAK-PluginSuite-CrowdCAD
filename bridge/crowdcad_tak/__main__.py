@@ -58,7 +58,8 @@ def serve(cfg, secrets):
         print(f"[crowdcad-tak] manage API: CrowdCAD sign-in failed for now ({error})", file=sys.stderr, flush=True)
     field = None
     if cfg.get("field_status", True):
-        # ATAK status taps → CrowdCAD, through the same compare-and-swap store as CloudTAK dispatch.
+        # ATAK Acknowledge taps → a line in the CrowdCAD call log, through the same compare-and-swap
+        # store as CloudTAK dispatch. Field users never change status (fieldstatus.py).
         field = FieldStatus(runner.publisher, manager.store, cfg,
                             log=lambda line: print(f"[crowdcad-tak] {line}", file=sys.stderr, flush=True))
         tak.on_message = field.offer

@@ -17,7 +17,9 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-# Reads its config and certs; writes nothing (ProtectSystem=strict keeps all of /opt read-only).
+# Reads its config and certs. Writes only its data dir: call_details.json (TAK call details,
+# bridge/crowdcad_tak/calldetails.py). ProtectSystem=strict keeps the rest of /opt read-only.
+ReadWritePaths=/opt/crowdcad-tak/data
 
 [Install]
 WantedBy=multi-user.target

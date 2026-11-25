@@ -224,6 +224,22 @@ def assign(event, call_id, unit_name, actor=None, clock=None):
     return patch
 
 
+def acknowledge(event, call_id, unit_name, actor=None, clock=None):
+    """A medic tapped Acknowledge in the ATAK plugin: one line in the call's log, nothing else.
+    Status stays dispatch's to change (Jon, 2026-11-25: field users must not set status)."""
+    clock = clock or Clock()
+    event = copy.deepcopy(event)
+    call = _find_call(event, call_id)
+    number = _display_number(event, call)
+    if _is_resolved(call):
+        raise DispatchError(f"call #{number} is already closed ({call.get('status')})", 409)
+    if unit_name not in (call.get("assignedTeam") or []):
+        raise DispatchError(f"{unit_name} isn't on call #{number}", 409)
+    entry = {"timestamp": clock.ms, "message": f"{clock.hhmm} - {unit_name} acknowledged the call.{_via(actor)}"}
+    new_call_ = {**call, "log": (call.get("log") or []) + [entry]}
+    return {"calls": _replace(event["calls"], lambda c: c.get("id") == call_id, new_call_)}
+
+
 def status_on_call(event, call_id, unit_name, new_status, actor=None, clock=None, clinic_id=None, transport_unit=None):
     """handleTeamStatusChange: a unit's status on its call, incl. the resolving cascade."""
     clock = clock or Clock()

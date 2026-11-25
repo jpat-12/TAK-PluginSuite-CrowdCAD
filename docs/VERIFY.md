@@ -50,11 +50,25 @@ C6. `curl -sI http://<public IP>:8090` and `:3100` from outside: refused (loopba
 11. **ATAK** (two devices, CrowdCAD APK, same TAK group as the bridge): CrowdCAD toolbar button
     opens the board; open calls listed priority-first; tap a call → map centres on it.
 12. Map device A's uid to a team on the console page (`Team 1 = ANDROID-…`), assign that team in
-    CrowdCAD → device A vibrates, toasts, opens the call. Tap **Respond** → device B's board
-    shows A as Responding within seconds (A's PLI carries it).
-13. Kill and restart ATAK on A mid-call → status is still Responding (persisted).
+    CrowdCAD → device A vibrates, toasts, opens the call. The panel has **no** status buttons and no
+    Respond. Tap **Acknowledge** → it becomes "Acknowledged 0m ago", and the call's CrowdCAD log
+    gets "Team 1 acknowledged the call. (via ATAK: <callsign>)" within seconds. Team 1's status in
+    CrowdCAD is unchanged.
+13. Kill and restart ATAK on A mid-call → the call still shows "Acknowledged" (persisted), and no
+    second log line appears.
 14. **CloudTAK**: Settings → Refresh App; menu → CrowdCAD shows the same board as ATAK; tap a call
     → map flies to it. Stop the bridge → the panel shows an error but keeps the last board.
 15. **WebTAK**: hard-refresh; sidebar tool **CrowdCAD** opens a docked drawer with the board. If
     it says it can't reach the bridge, add WebTAK's exact page origin on the console page
     (WebTAK page origins).
+
+## CloudTAK dispatcher (CrowdCAD Dispatch)
+
+1. CloudTAK → Settings → Refresh App → menu **CrowdCAD Dispatch**: header **Bridge OK**.
+2. **Units → + Add** a team carried by a test phone's TAK contact → within ~3 min the row shows a
+   position (no *no GPS fix*). If it stays *not heard yet*: TAK groups (README "TAK groups").
+3. **+ New** call with a map click → the call row is **red**; in CrowdCAD its location is "lat, lon"
+   and its notes end with the `[TAK] …` line.
+4. Open it → **Assign** the test unit → the phone vibrates (ATAK plugin); a dashed line joins unit and call.
+5. Unit **On Scene** → row and line turn red/blue; **Close** → the marker leaves CloudTAK and ATAK at once.
+

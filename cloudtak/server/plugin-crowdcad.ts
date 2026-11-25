@@ -100,6 +100,37 @@ export default async function router(schema: Schema, config: Config) {
         }
     });
 
+    // The dispatcher panel (a copy of IU EMS Dispatch): IU's board and actions, served by the
+    // bridge's dispatcher.py from CrowdCAD with the manage token (which never reaches the browser).
+    await schema.get('/plugin-crowdcad/dispatcher/board', {
+        name: 'CrowdCAD Dispatcher Board',
+        group: 'PluginCrowdCAD',
+        description: 'Open calls and units of the live CrowdCAD events, in the dispatcher panel’s shape (no patient data)',
+        res: Type.Any(),
+    }, async (req, res) => {
+        try {
+            const user = await Auth.as_user(config, req);
+            res.json(await relay('/manage/dispatcher/board', 'manage', { user: user.email }));
+        } catch (err) {
+            Err.respond(err, res);
+        }
+    });
+
+    await schema.post('/plugin-crowdcad/dispatcher/action', {
+        name: 'CrowdCAD Dispatcher Action',
+        group: 'PluginCrowdCAD',
+        description: 'assign / unassign / status / create, applied to CrowdCAD with its own dispatch handlers',
+        body: Type.Any(),
+        res: Type.Any(),
+    }, async (req, res) => {
+        try {
+            const user = await Auth.as_user(config, req);
+            res.json(await relay('/manage/dispatcher/action', 'manage', { method: 'POST', body: req.body, user: user.email }));
+        } catch (err) {
+            Err.respond(err, res);
+        }
+    });
+
     await schema.get('/plugin-crowdcad/venues', {
         name: 'CrowdCAD Venues',
         group: 'PluginCrowdCAD',

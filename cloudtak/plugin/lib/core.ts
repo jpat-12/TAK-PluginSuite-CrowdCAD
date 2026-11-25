@@ -1,92 +1,114 @@
-// Pure display rules for the dispatcher (no Vue, no IO). The bridge owns every rule that changes
-// data (CrowdCAD's own dispatch handlers, ported in bridge/crowdcad_tak/dispatch.py); this file
-// only shapes what the board says for the screen.
-//
-// Words follow CrowdCAD's own screen (v1.6.0: Calls, Teams, Supervisors, Add Call, Add Team, En
-// Route, On Scene, ...). Status codes are IU Event CAD's (docs/COT_FORMAT.md) and pick the colour
-// and letter; the text shown is CrowdCAD's own status whenever the board carries it.
-import type { BoardCall, BoardUnit, IncidentStatus, UnitStatus } from './types.ts';
+// Pure display rules for the dispatcher. The bridge owns the incident rules (status,
+// assignment, ids); this file only shapes what it serves for the screen.
+// Codes and colours match ATAK's UnitStatus / IncidentStatus (ATAK5.6-Eventcad/docs/COT_FORMAT.md).
 
-export const STALE_AFTER_MS = 3 * 60_000;    // a device unit not heard for 3 min fades (same as ATAK)
+export const STALE_AFTER_MS = 3 * 60_000;   // same as ATAK UnitBoard.STALE_AFTER_MS
 export const WALK_M_PER_S = 1.2;
 export const MAX_WALK_ETA_M = 3_000;
 
-export interface StatusDef { label: string; letter: string; color: string }
-
-// Colours match the ATAK plugin and IU Event CAD; labels are CrowdCAD's words for each group.
-export const UNIT_STATUS: Record<UnitStatus, StatusDef> = {
-    AVL:  { label: 'Available',    letter: 'A', color: '#43A047' },
-    RESP: { label: 'En Route',     letter: 'E', color: '#FFB300' },
-    ONSC: { label: 'On Scene',     letter: 'S', color: '#E53935' },
-    TRAN: { label: 'Transporting', letter: 'T', color: '#E53935' },
-    OOS:  { label: 'On Break',     letter: 'B', color: '#9E9E9E' },   // also In Clinic, Detached
-};
-export const UNKNOWN_STATUS: StatusDef = { label: '—', letter: '?', color: '#616161' };
-
-// CrowdCAD's call statuses for each IU incident status (Pending → Assigned → On Scene → Transporting).
-export const CALL_STATUS: Record<IncidentStatus, StatusDef> = {
-    NEW:  { label: 'Pending',      letter: 'P', color: '#FFFFFF' },
-    DISP: { label: 'Assigned',     letter: 'A', color: '#FFB300' },
-    ONSC: { label: 'On Scene',     letter: 'S', color: '#E53935' },
-    TRAN: { label: 'Transporting', letter: 'T', color: '#E53935' },
+export type UnitStatusCode = 'AVL' | 'RESP' | 'ONSC' | 'TRAN' | 'OOS';
+export interface UnitStatusDef { label: string; letter: string; color: string }
+export const UNIT_STATUS: Record<UnitStatusCode, UnitStatusDef> = {
+    AVL:  { label: 'Available',      letter: 'A', color: '#43A047' },
+    RESP: { label: 'Responding',     letter: 'R', color: '#FFB300' },
+    ONSC: { label: 'On Scene',       letter: 'S', color: '#E53935' },
+    TRAN: { label: 'Transporting',   letter: 'T', color: '#E53935' },
+    OOS:  { label: 'Out of Service', letter: 'O', color: '#9E9E9E' },
 };
 
-// Incident icon disc colour by priority — the same three as the ATAK plugin's IncidentStyler
-// (model/Priority.java). CrowdCAD only flags priority, so its calls are P1 (red) or P2 (orange).
-export const PRIORITY_COLOR: Record<number, string> = { 1: '#E03131', 2: '#F76707', 3: '#FCC419' };
-export function priorityColor(p: number): string {
-    return PRIORITY_COLOR[p <= 1 ? 1 : p === 2 ? 2 : 3];
-}
+export type IncidentStatusCode = 'NEW' | 'DISP' | 'ONSC' | 'TRAN' | 'CLOSED' | 'CXL';
+export const INCIDENT_STATUS: Record<IncidentStatusCode, { label: string; color: string }> = {
+    // Whole board rows take these colours: red = no unit sent yet.
+    NEW:    { label: 'New',          color: '#E53935' },
+    DISP:   { label: 'Dispatched',   color: '#FFB300' },
+    ONSC:   { label: 'On Scene',     color: '#1E88E5' },
+    TRAN:   { label: 'Transporting', color: '#8E24AA' },
+    CLOSED: { label: 'Closed',       color: '#9E9E9E' },
+    CXL:    { label: 'Cancelled',    color: '#9E9E9E' },
+};
 
-export function unitStatus(u: BoardUnit): StatusDef {
-    const def = u.status ? UNIT_STATUS[u.status] : UNKNOWN_STATUS;
-    return u.crowdcadStatus ? { ...def, label: u.crowdcadStatus } : def;
-}
-
-export function callStatus(c: BoardCall): StatusDef {
-    const def = c.status ? CALL_STATUS[c.status] : { ...UNKNOWN_STATUS, color: '#FFFFFF' };
-    return c.crowdcadStatus ? { ...def, label: c.crowdcadStatus } : def;
-}
-
-// Floors: IU Event CAD's rule (1–8, -1 basement, none).
+// Types offered for a call made here; they become its CrowdCAD chief complaint. Calls made in CrowdCAD come through as sent.
+export const TYPES = [
+    'Medical', 'Injury / Fall', 'Cardiac', 'Breathing',
+    'Heat / Cold', 'Intoxication', 'Behavioral', 'Other',
+];
+export const FLOOR_NONE = 0;
 export const FLOOR_BASEMENT = -1;
 export const FLOOR_MAX = 8;
-export const FLOORS: (number | null)[] = [null, FLOOR_BASEMENT, ...Array.from({ length: FLOOR_MAX }, (_, i) => i + 1)];
 
-export function floorLabel(f: number | null | undefined): string {
-    return !f ? '' : f === FLOOR_BASEMENT ? 'Basement' : 'Floor ' + f;
-}
-export function floorShort(f: number | null | undefined): string {
-    return !f ? '—' : f === FLOOR_BASEMENT ? 'B' : 'F' + f;
+/** An open call as the bridge serves it (GET /api/plugin-crowdcad/dispatcher/board). */
+export interface Incident {
+    id: string;                  // CC-007: the call's CrowdCAD number with the event's prefix
+    cadId: string;               // CrowdCAD's own call id
+    status: IncidentStatusCode;
+    type: string; typeAbbrv: string; medical: boolean;
+    priority: number;
+    location: string; floor: number; eventTitle: string; notes: string;
+    w3w: string;                 // what3words when the incident carries one (walk-ups)
+    lat: number; lon: number;
+    positionFrom: string;        // geocode | table | table (estimated) | section | facility | dispatch
+    created: number; updated: number;
+    assigned: string[];          // unit UIDs
 }
 
-/** "#7": how CrowdCAD numbers a call on its own screen (and on the radio). */
-export function callNumber(c: BoardCall): string {
-    return c.number ? '#' + c.number : c.id;
+/** A unit the bridge has heard on its position report. Times are the bridge's clock. */
+export interface Unit {
+    uid: string; callsign: string;
+    status: UnitStatusCode; incident: string;
+    since: number; lat: number; lon: number; seen: number;   // seen 0 = never heard
+    device?: boolean;            // carried by a phone (position + seen come from its reports)
 }
 
-/** "P1 · Chest pain · Sec 104 · Floor 3". */
-export function headline(c: BoardCall): string {
-    let s = 'P' + c.priority + ' · ' + (c.type || 'Call');
-    if (c.location) s += ' · ' + c.location;
-    if (c.floor) s += ' · ' + floorLabel(c.floor);
+export interface Board { now: number; incidents: Incident[]; units: Unit[] }
+
+/** Black or white text, whichever reads on this background colour. */
+export function textOn(hex: string): string {
+    const n = parseInt(hex.replace('#', ''), 16);
+    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#000' : '#fff';
+}
+
+export function floorLabel(f: number): string {
+    return f === FLOOR_NONE ? '' : f === FLOOR_BASEMENT ? 'Basement' : 'Floor ' + f;
+}
+export function floorShort(f: number): string {
+    return f === FLOOR_NONE ? '—' : f === FLOOR_BASEMENT ? 'B' : 'F' + f;
+}
+
+/** "CC-007" → "007": what gets said on the radio. */
+export function shortForm(id: string): string {
+    const dash = id.lastIndexOf('-');
+    return dash > 0 ? id.slice(dash + 1) : id;
+}
+
+export function headline(i: Incident): string {
+    let s = 'P' + i.priority + ' · ' + i.type;
+    if (i.location) s += ' · ' + i.location;
+    if (i.floor !== FLOOR_NONE) s += ' · ' + floorLabel(i.floor);
     return s;
 }
 
-/** Warn the dispatcher when the pin isn't a real place yet: get the location by radio. */
-export function positionWarning(c: BoardCall): string {
-    if (c.placed === false || c.lat === null) return 'Not on the map: set a location (post, map point, what3words or coordinates)';
-    if (c.positionFrom === 'estimate') return 'Position is an estimate (map centre)';
+/** True when the pin is only a venue centre or an estimate: get the location by radio. */
+export function positionWarning(i: Incident): string {
+    if (i.positionFrom === 'facility') return 'Location unknown: pin is the venue centre only';
+    if (i.positionFrom === 'table (estimated)' || i.positionFrom === 'section') return 'Position is an estimate';
     return '';
 }
 
-/** Priority first, then the oldest (CrowdCAD's board order). */
-export function sortCalls(calls: BoardCall[]): BoardCall[] {
-    return calls.slice().sort((a, b) => a.priority - b.priority || (a.created ?? 0) - (b.created ?? 0));
+/** Most urgent first, then newest (same order as ATAK's board). */
+export function sortOpen(incidents: Incident[]): Incident[] {
+    return incidents.slice().sort((a, b) => a.priority - b.priority || b.created - a.created);
 }
 
-export function isStale(u: BoardUnit, now: number): boolean {
-    return u.device && (!u.lastHeard || now - u.lastHeard > STALE_AFTER_MS);
+export function meters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const r = 6_371_000, rad = Math.PI / 180;
+    const dLat = (lat2 - lat1) * rad, dLon = (lon2 - lon1) * rad;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) ** 2;
+    return 2 * r * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+export function formatMeters(m: number): string {
+    return m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1) + ' km';
 }
 
 export function ago(ms: number): string {
@@ -98,31 +120,17 @@ export function ago(ms: number): string {
     return m % 60 === 0 ? h + ' h' : h + ' h ' + (m % 60) + ' min';
 }
 
-export interface Point { lat: number; lon: number }
-
 /** A real fix: ATAK reports 0,0 until the phone has GPS, and that is not a place to send anyone. */
-export function hasPosition(p: { lat: number | null; lon: number | null }): p is Point {
-    return p.lat !== null && p.lon !== null && Number.isFinite(p.lat) && Number.isFinite(p.lon)
-        && !(p.lat === 0 && p.lon === 0);
+export function hasPosition(p: { lat: number; lon: number }): boolean {
+    return Number.isFinite(p.lat) && Number.isFinite(p.lon) && !(p.lat === 0 && p.lon === 0);
 }
 
-export function meters(a: Point, b: Point): number {
-    const r = 6_371_000, rad = Math.PI / 180;
-    const dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
-    const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
-    return 2 * r * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
-export function formatMeters(m: number): string {
-    return m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1) + ' km';
-}
-
-/** Initial bearing from a to b, degrees clockwise from true north. */
-export function bearing(a: Point, b: Point): number {
+/** Initial bearing from 1 to 2, degrees clockwise from true north. */
+export function bearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const rad = Math.PI / 180;
-    const y = Math.sin((b.lon - a.lon) * rad) * Math.cos(b.lat * rad);
-    const x = Math.cos(a.lat * rad) * Math.sin(b.lat * rad)
-        - Math.sin(a.lat * rad) * Math.cos(b.lat * rad) * Math.cos((b.lon - a.lon) * rad);
+    const y = Math.sin((lon2 - lon1) * rad) * Math.cos(lat2 * rad);
+    const x = Math.cos(lat1 * rad) * Math.sin(lat2 * rad)
+        - Math.sin(lat1 * rad) * Math.cos(lat2 * rad) * Math.cos((lon2 - lon1) * rad);
     return (Math.atan2(y, x) / rad + 360) % 360;
 }
 
@@ -131,48 +139,32 @@ export function compass(deg: number): string {
     return COMPASS[Math.round(deg / 45) % 8];
 }
 
-/** Where a unit is from the call, for the radar and the rows. */
+/** Where a unit is from the incident, for the radar and the rows. */
 export interface Relative { meters: number; bearing: number; dir: string; etaSeconds: number; hasWalkEta: boolean }
 
-export function relativeTo(call: { lat: number | null; lon: number | null }, u: { lat: number | null; lon: number | null }): Relative | null {
-    if (!hasPosition(call) || !hasPosition(u)) return null;
-    const m = meters(call, u);
-    const b = bearing(call, u);
+export function relativeTo(inc: { lat: number; lon: number }, u: { lat: number; lon: number }): Relative | null {
+    if (!hasPosition(inc) || !hasPosition(u)) return null;
+    const m = meters(inc.lat, inc.lon, u.lat, u.lon);
+    const b = bearing(inc.lat, inc.lon, u.lat, u.lon);
     return { meters: m, bearing: b, dir: compass(b), etaSeconds: Math.round(m / WALK_M_PER_S), hasWalkEta: m <= MAX_WALK_ETA_M };
 }
 
-/** "180 m NE · ~3 min walk": the unit as seen from the call. */
+/** "180 m NE · ~3 min walk": the unit as seen from the incident. */
 export function describeRelative(r: Relative | null): string {
     if (!r) return 'no position';
     return formatMeters(r.meters) + ' ' + r.dir + (r.hasWalkEta ? ' · ~' + ago(r.etaSeconds * 1000) + ' walk' : '');
 }
 
-export interface RankedUnit extends Relative { unit: BoardUnit }
+export interface RankedUnit extends Relative { unit: Unit }
 
 /** Available units first, then nearest. Units without a position are left out. */
-export function rankClosest(call: { lat: number | null; lon: number | null }, units: BoardUnit[]): RankedUnit[] {
+export function rankClosest(inc: { lat: number; lon: number }, units: Unit[]): RankedUnit[] {
     return units
-        .map((u) => ({ u, r: relativeTo(call, u) }))
-        .filter((x): x is { u: BoardUnit; r: Relative } => x.r !== null)
+        .map(u => ({ u, r: relativeTo(inc, u) }))
+        .filter((x): x is { u: Unit; r: Relative } => x.r !== null)
         .map(({ u, r }) => ({ unit: u, ...r }))
         .sort((a, b) => {
             const av = a.unit.status === 'AVL', bv = b.unit.status === 'AVL';
             return av !== bv ? (av ? -1 : 1) : a.meters - b.meters;
         });
-}
-
-/** "lat, lon" typed by a dispatcher → a point, or null. */
-export function parseCoords(text: string): Point | null {
-    const m = text.match(/^\s*(-?\d{1,2}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/);
-    if (!m) return null;
-    const p = { lat: Number(m[1]), lon: Number(m[2]) };
-    return Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180 && hasPosition(p) ? p : null;
-}
-
-/** CrowdCAD's getNextTeamName (addteammodal.tsx): the last team's trailing number + 1. */
-export function nextTeamName(existing: string[]): string {
-    if (!existing.length) return 'Team 1';
-    const last = existing[existing.length - 1].trim();
-    const m = last.match(/^(.*?)(\d+)$/);
-    return m ? m[1] + (parseInt(m[2], 10) + 1) : last + ' 1';
 }

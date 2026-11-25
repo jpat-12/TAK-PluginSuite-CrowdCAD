@@ -22,6 +22,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import VERSION, board
+from .dispatcher import Dispatcher
 from .manage import ManageError
 
 MAX_BODY = 256 * 1024
@@ -35,6 +36,8 @@ def make_server(listen, status, board_source, token, cors_origins=(), manager=No
     bridge isn't configured. token: the board bearer token ('' = board disabled).
     manager: manage.Manager, or None (manage API off); manage_token: its bearer token."""
     host, _, port = listen.rpartition(":")
+    # CloudTAK's dispatcher (the IU EMS Dispatch copy): IU's board + actions over CrowdCAD, manage token.
+    dispatcher = Dispatcher(manager, board_source) if manager is not None else None
     origins = {o.rstrip("/") for o in cors_origins or () if o}
 
     class Handler(BaseHTTPRequestHandler):
@@ -106,6 +109,8 @@ def make_server(listen, status, board_source, token, cors_origins=(), manager=No
                 return self._send(200, {"api": board.API_VERSION, "version": VERSION, "name": "CrowdCAD for TAK"})
             if path == "/api/v1/manage/venues":
                 return self._manage(lambda actor: manager.venues())
+            if path == "/api/v1/manage/dispatcher/board":
+                return self._manage(lambda actor: dispatcher.board(int(time.time() * 1000)))
             if path == "/api/v1/manage/w3w":
                 query = urllib.parse.parse_qs(self.path.partition("?")[2])
                 return self._manage(lambda actor: manager.w3w(query))
@@ -128,6 +133,8 @@ def make_server(listen, status, board_source, token, cors_origins=(), manager=No
             path = self.path.split("?", 1)[0]
             if path == "/api/v1/manage/events":
                 return self._manage(lambda actor: manager.create(self._json_body(), actor))
+            if path == "/api/v1/manage/dispatcher/action":
+                return self._manage(lambda actor: dispatcher.act(self._json_body(), actor))
             match = END_PATH.match(path)
             if match:
                 return self._manage(lambda actor: manager.end(match.group(1), actor))

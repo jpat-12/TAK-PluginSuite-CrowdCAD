@@ -40,7 +40,7 @@ column) and run `bash guides/build_pdfs.sh`.
 | # | File | What to capture | State needed | Replaces / goes in |
 |---|---|---|---|---|
 | U1 | `map-markers.png` | Any TAK map (ATAK without the panel open): a call marker with its label, a team marker and a zone shape | Event active, one call at a post | New, *What you see on the map* |
-| U2 | `atak-panel.png` | ATAK **device A** landscape: the map with the CrowdCAD panel open showing My status, open incidents (one with a thick border, meaning assigned to you), and units | Team 2 assigned to a call | `../docs/images/atak.svg` (*Medics: ATAK*) |
+| U2 | `atak-panel.png` | ATAK **device A** landscape: the map with the CrowdCAD panel open showing Assigned to you, open incidents (one with a thick border, meaning assigned to you), and units | Team 2 assigned to a call | `../docs/images/atak.svg` (*Medics: ATAK*) |
 | U3 | `atak-alert.png` | Device A at the moment of assignment: the **toast** plus the opened call. Assign from a second screen and be ready to capture | Assign Team 2 in Dispatch | New, *When you're assigned a call* |
 | U4 | `atak-status-responding.png` | Device **B**'s panel showing Team 2 as *Responding* after A tapped Respond | After U3 + Respond | New, *Set your status* |
 | U5 | `crowdcad-log-via-atak.png` | CrowdCAD's call log entry reading *via ATAK: MEDIC-2* | After U4 | New, *Set your status* (shows that the tap reached CrowdCAD) |
@@ -64,7 +64,7 @@ These are diagrams, not screens, so don't replace them: `images/setup-roadmap.sv
 ## While you're there, check these against the real UI
 
 - Where ATAK or TAK Server shows the device UID (S4).
-- ATAK status button labels: **AVL / RESP / ON SC / TRAN / OOS**, and **Respond (assigned)**.
+- ATAK: no status buttons (removed 0.1.6). An assigned call shows **Acknowledge**, then *Acknowledged Nm ago*.
 - The toast wording, *CrowdCAD: assigned to CC-008 — …*.
 - What ATAK does with stale markers: grey, or removed (U15).
 - Whether the New event venue list really shows *not on the map* for venues without a GeoJSON map.

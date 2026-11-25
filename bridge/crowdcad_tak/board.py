@@ -9,6 +9,8 @@ from the CoT it receives.
 
 import urllib.parse
 
+from . import mapping
+
 API_VERSION = 1
 
 STATUS_ORDER = {"NEW": 0, "DISP": 1, "ONSC": 2, "TRAN": 3}
@@ -91,6 +93,7 @@ def build(publisher, now_ms, bridge_status=None, own_user=None, heard=None, posi
             calls.sort(key=lambda c: (c["priority"], STATUS_ORDER.get(c["status"], 9), c["created"] or 0))
             units.sort(key=lambda u: (u["supervisor"], u["callsign"] or ""))
             events.append({"id": eid, "name": info["name"], "date": info.get("date"), "calls": calls, "units": units,
+                           "idPrefix": mapping._id_prefix({"id": eid}, publisher.config),   # "CC" in CC-007
                            "unplaced": info["unplaced"],
                            "endable": bool(own_user) and info.get("owner") == own_user,
                            # CrowdCAD's own dispatch screen for this event (the clients embed it);

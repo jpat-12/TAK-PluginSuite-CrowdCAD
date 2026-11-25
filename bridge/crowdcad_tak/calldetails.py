@@ -193,31 +193,32 @@ class CallDetails:
 
     def put(self, event_id, call_id, details):
         """→ the previous value (for undo when CrowdCAD refuses the write). A post name isn't
-        kept: it lives in CrowdCAD's own location field."""
+        kept: it lives in CrowdCAD's own location field. Saved to disk first, so a failed save
+        (OSError) leaves the store exactly as it was."""
+        kept = {k: v for k, v in details.items() if v is not None and k != "post"}
         with self.lock:
-            calls = self.data.setdefault(event_id, {})
-            previous = calls.get(call_id)
-            kept = {k: v for k, v in details.items() if v is not None and k != "post"}
-            if kept:
-                calls[call_id] = kept
-            else:
-                calls.pop(call_id, None)
-            self._save()
+            previous = (self.data.get(event_id) or {}).get(call_id)
+            self._commit(event_id, call_id, kept or None)
             return previous
 
     def restore(self, event_id, call_id, previous):
         with self.lock:
-            calls = self.data.setdefault(event_id, {})
-            if previous:
-                calls[call_id] = previous
-            else:
-                calls.pop(call_id, None)
-            self._save()
+            self._commit(event_id, call_id, previous or None)
 
-    def _save(self):
+    def _commit(self, event_id, call_id, value):
+        data = {eid: dict(calls) for eid, calls in self.data.items()}
+        calls = data.setdefault(event_id, {})
+        if value:
+            calls[call_id] = value
+        else:
+            calls.pop(call_id, None)
+        self._save(data)
+        self.data = data
+
+    def _save(self, data):
         if not self.path:
             return
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as stream:
-            json.dump(self.data, stream, indent=1, sort_keys=True)
+            json.dump(data, stream, indent=1, sort_keys=True)
         os.replace(tmp, self.path)

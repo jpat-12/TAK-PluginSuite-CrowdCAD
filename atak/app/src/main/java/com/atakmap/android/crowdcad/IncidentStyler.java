@@ -31,13 +31,19 @@ import java.util.Map;
  * Only plugin devices see this. The CoT still says b-m-p-s-p-i, so ATAK, WinTAK and iTAK
  * without the plugin keep their default incident icon.
  *
- * Restyled after every import, including the bridge's same-content heartbeats, which the Board
- * ignores. ATAK re-applies the type's default icon while it imports each CoT, so the styling
- * has to land after that import, every time (same lesson as IU Event CAD's MapStyler).
+ * Two ways ATAK puts its default icon back, so two guards:
+ * - IconsMapAdapter re-adapts a marker's icon on map refresh events (item_refresh), with no
+ *   CoT involved. On 0.1.5 that happened when the medic tapped Respond. Styled markers carry
+ *   {@code adapt_marker_icon=false}, which makes IconsMapAdapter.adaptMarkerIcon return early.
+ * - CoT import itself can reset the icon, so we still restyle after every import, including
+ *   the bridge's same-content heartbeats, which the Board ignores (same lesson as IU Event
+ *   CAD's MapStyler).
  */
 final class IncidentStyler {
 
     private static final int ICON_PX = 48;
+    // Marker meta that ATAK's IconsMapAdapter checks before overriding a marker's icon (default true).
+    private static final String ADAPT_ICON = "adapt_marker_icon";
 
     private final Context plugin;
     private final MapView mapView;
@@ -69,8 +75,10 @@ final class IncidentStyler {
     void stop() {
         for (Map.Entry<String, Icon> e : originals.entrySet()) {
             MapItem item = mapView.getRootGroup().deepFindUID(e.getKey());
-            if (item instanceof Marker)
+            if (item instanceof Marker) {
+                ((Marker) item).removeMetaData(ADAPT_ICON);
                 ((Marker) item).setIcon(e.getValue());
+            }
         }
         originals.clear();
     }
@@ -79,6 +87,9 @@ final class IncidentStyler {
         String uri = iconUri(incident.priority);
         if (uri == null)
             return;   // the icon failed to load; leave ATAK's default rather than a blank marker
+        // Set before the early return too: a marker styled before this flag existed gets it now.
+        if (m.getMetaBoolean(ADAPT_ICON, true))
+            m.setMetaBoolean(ADAPT_ICON, false);
         Icon current = m.getIcon();
         if (current != null && uri.equals(current.getImageUri(Icon.STATE_DEFAULT)))
             return;

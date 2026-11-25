@@ -84,39 +84,29 @@ because the system never guesses where a patient is. Ask dispatch to move it to 
 
 Tap the **CrowdCAD** button in the ATAK toolbar. The panel shows, from top to bottom:
 
-1. **My status:** five buttons. The current one is highlighted.
+1. **Assigned to you:** the call(s) dispatch gave your team, or *No call assigned to you*.
 2. **Open incidents:** P1 first. The border colour is the call status. A **thick border**
    means *assigned to you*.
 3. **Units:** every team and supervisor with their status.
 
 Tap any card to centre the map on it.
 
-### Set your status
+### Your status is set by dispatch
 
-| Button | Status | What happens in CrowdCAD (if your device carries a unit) |
-|---|---|---|
-| **AVL** | Available | Clears you from your call (closes it as *Resolved* if you were the last unit on it), or sets you Available |
-| **RESP** | Responding | Sets you Responding on your call |
-| **ON SC** | On scene | Sets you On Scene on your call |
-| **TRAN** | Transporting | Sets you Transporting on your call |
-| **OOS** | Out of service | Puts you On Break when you're not on a call |
-
-- Your status rides on your own position report, so every other plugin user sees it within
-  seconds.
-- Every change is logged in CrowdCAD as **`via ATAK: <your callsign>`**.
-- Only a **new tap** counts. If dispatch later changes your status in CrowdCAD, their change
-  stands until you tap again.
-- Your status survives an ATAK restart.
+You can't change your status from ATAK. Dispatch sets it in CrowdCAD (or the CloudTAK
+console), and you see it on the boards. Tell dispatch by radio when you're en route, on scene,
+transporting or clear, as usual.
 
 ### When you're assigned a call
 
 1. The phone **vibrates**, shows a toast like *CrowdCAD: assigned to CC-008 — Ankle injury at
    Gate A*, and opens the call.
-2. Tap **Respond (assigned)**. You're now *Responding*, and dispatch sees it.
-3. On arrival tap **ON SC**. If you transport, tap **TRAN**.
-4. When you're clear, tap **AVL**.
+2. Tap **Acknowledge** on the call. It changes to *Acknowledged*, and the call's log in
+   CrowdCAD shows **`<your team> acknowledged the call. (via ATAK: <your callsign>)`**.
+   Acknowledge doesn't change your status.
 
-You can also tap **Respond** on a call you weren't given. That assigns you to it.
+If your phone isn't linked to your team yet, set your ATAK callsign to your team name
+(e.g. *Team 1*). Your first Acknowledge links it.
 
 > **Not getting alerts?** Your device must be mapped to your team. Ask the operator to check
 > *Teams carried by their own ATAK device* on the console page.
@@ -125,60 +115,57 @@ You can also tap **Respond** on a call you weren't given. That assigns you to it
 
 ## Dispatchers: CloudTAK
 
-Open the CloudTAK menu → **CrowdCAD**. The panel lists events. Each event has a **Dispatch**
-button, and a **CrowdCAD** button that opens CrowdCAD's own screen.
+Open the CloudTAK menu → **CrowdCAD Dispatch**. The header says **Bridge OK** when the board is
+live (tap it to refresh). If it says *Bridge offline*, the line under it says why.
 
-### Create an event (optional)
+### The board
 
-Use this when the event isn't already set up in CrowdCAD.
+- The coloured buttons count units by status: **A** available, **R** responding, **S** on scene,
+  **T** transporting, **O** out of service. Tap one to show only those units; tap again to clear.
+- **Incidents**: one row per open call, coloured by status. **Red means no unit has been sent.**
+  Amber = dispatched, blue = on scene, purple = transporting. Tap a call to open it.
+- **Units**: one row per team or supervisor, coloured by status. Tap a unit to fly the map to it.
+  *no GPS fix* = no position yet; a faded row = its phone hasn't reported for 3 minutes.
 
-![CloudTAK New CrowdCAD event form: name, date, venue, and TAK contacts picked as teams or supervisors](images/cloudtak-new-event.svg)
+### Create a call
 
-1. On the CrowdCAD panel, tap **+ New event**.
-2. Enter the **Event name** and **Date**.
-3. Pick the **Venue**. Choose one *without* the note *not on the map*. Otherwise its calls
-   and teams won't reach the TAK map.
-4. Under **Units from your TAK contacts**, tick each device that will be a unit. For each, pick
-   **Team** or **Supervisor** and set the unit name (e.g. *Team 1*).
-5. Tap **Create event with N units**.
+1. Tap **+ New**.
+2. Pick the **Type** and **Priority** (P1 = most urgent).
+3. **Location**: describe the spot (e.g. *Sec 104 Row 22*) and pick the **Floor** if indoors.
+4. **Map position**: click the map, find **what3words**, type **coordinates**, or use the **map
+   centre** (saved as an estimate, so the call shows *Position is an estimate*).
+5. **Complaint**: short, no names, DOB or MRN. **Reported by**: who called it in.
+6. Tap **Create**.
 
-The event is created in CrowdCAD as an org event (every CrowdCAD user can dispatch it). Each
-picked phone's own position is the unit on the map, and its assignment alerts go to that
-phone. Events made this way get an **End** button to close them when you're done.
+The call is created in CrowdCAD with the point as its location ("lat, lon"); the place, floor and
+what3words are written into one `[TAK]` line of the call's notes, so CrowdCAD users see them too.
 
-### Dispatch
+### Work a call
 
-Tap **Dispatch** on the event.
+- **Closest units** lists available units first, then by distance and walking time. Tap
+  **Assign**: the unit's phone (ATAK CrowdCAD plugin) vibrates and opens the call.
+- **Units around it**: the radar, north up. Tap a unit to fly the map to it, or **Show all on map**.
+- Each unit on the call has **Available / Responding / On Scene / Transporting / Out of Service**.
+  *Available* sends the unit back to its post; *Out of Service* also puts it On Break. If it was
+  the last unit, CrowdCAD closes the call (you're asked first).
+- **Dispatched / On Scene / Transporting** set every unit on the call at once.
+- **Close** resolves the call; **Cancel** resolves it as cancelled (CrowdCAD's duplicate). Its
+  units go back to their posts and the marker leaves every TAK map at once.
+- On the map, a dashed line joins each assigned unit to its call.
 
-![CloudTAK Dispatch pane: New call form, open calls with assign pickers and unit statuses, and the units list](images/cloudtak-dispatch.svg)
+### Add or remove units
 
-**Create a call**
-
-1. **Location:** start typing a post name and pick a suggestion. Or tap **📍** to use the
-   post nearest the centre of the map.
-2. **Chief complaint:** a short description such as *Fall* or *Chest pain*. No names, age or
-   sex.
-3. Tick **Priority** for a P1 call.
-4. Optionally choose a **Unit** to assign straight away.
-5. Tap **Create call**.
-
-**Assign and update**
-
-- On a call card, use **Assign a unit** (or **+ Add unit**). Units already busy are labelled
-  *on another call*.
-- Change a unit's status on the call with its drop-down: En Route → On Scene → Transporting →
-  a closing status (Delivered, Refusal, NMM…). When the last unit closes out, the call closes for
-  everyone, exactly as in CrowdCAD.
-- Tap a call or unit to fly the map to it.
+- **Units → + Add**: **Team** or **Supervisor**, a name (supervisors: a certification), and
+  optionally the **TAK contact** who carries it. With a contact, that phone's position is the
+  unit and assignments alert it.
+- **✕** on a unit row removes it from the CrowdCAD event (you're asked first). It leaves any call
+  it was on; a call left with no unit goes back to Pending (red).
 
 **Good to know**
 
-- Every change uses CrowdCAD's own rules and is logged **`via CloudTAK: <your user>`**.
-- Changes are saved safely: if someone changed the same record in CrowdCAD a moment earlier,
-  your change won't overwrite theirs. Check the card and try again.
-- Prefer CrowdCAD's own screen? Tap **CrowdCAD ↗** to open it in a floating pane. Sign in
-  with your own CrowdCAD account. You need access to the event (shared with you, or an org
-  event).
+- Every change uses CrowdCAD's own rules and is logged **`via CloudTAK: <your user>`**, saved
+  safely: a change made in CrowdCAD a moment earlier is never overwritten.
+- New calls and units go to the **first live event** on the board.
 
 ### WebTAK dispatchers
 
@@ -192,17 +179,17 @@ account.
 
 ![CloudTAK and WebTAK boards showing open calls, teams and a "Not on the map" warning](../docs/images/web-clients.svg)
 
-- **CloudTAK:** menu → **CrowdCAD**.
-- **WebTAK:** sidebar tool → **CrowdCAD**.
+- **CloudTAK:** menu → **CrowdCAD Dispatch** (the same board dispatchers use; look, don't touch).
+- **WebTAK:** sidebar tool → **CrowdCAD** (read-only).
 
-The board shows:
+The WebTAK board shows:The board shows:
 
 - **Open calls**, P1 first, with status and assigned units;
 - **Teams** and their status;
 - **Not on the map**: anything CrowdCAD couldn't place.
 
-It refreshes every 5 seconds. In CloudTAK, tap a call or team to fly the map to it. The board is
-read-only. To change anything, use Dispatch or CrowdCAD.
+It refreshes every 5 seconds and is read-only: to change anything, use CrowdCAD Dispatch in
+CloudTAK, or CrowdCAD itself.
 
 If the bridge stops, the board shows a **warning above the last good board**. The data
 underneath is no longer current.
@@ -224,9 +211,9 @@ underneath is no longer current.
 |---|---|---|---|
 | 1 | Creates a call at a post | Marker appears on the map | Call appears red, *no unit* |
 | 2 | Assigns Team 2 | Team 2's phone vibrates and opens the call | Call turns *Dispatched* |
-| 3 | — | Taps **Respond** | Team 2 shows *Responding* |
-| 4 | — | Taps **ON SC**, then **TRAN** if transporting | Colours change on every client |
-| 5 | Closes the call (or the last unit closes out) | Taps **AVL** when clear | Call leaves every board at once |
+| 3 | Sees "Team 2 acknowledged the call" in the call log | Taps **Acknowledge** | — |
+| 4 | Sets Team 2 *En Route*, *On Scene*, *Transporting* in CrowdCAD as they radio in | — | Colours change on every client |
+| 5 | Closes the call | — | Call leaves every board at once |
 
 **After the event:** end it in CrowdCAD (or with **End** in CloudTAK). Everything clears the
 same way.
@@ -269,18 +256,19 @@ Thick border = your call.   Tap a card = centre the map.
 ### Dispatcher card (CloudTAK)
 
 ```
-Menu → CrowdCAD → Dispatch
+Menu → CrowdCAD Dispatch            red row = call with no unit sent
 
-New call:  Location (or 📍) · Chief complaint (no PHI) · Priority? · Unit? → Create call
-Assign:    "Assign a unit" / "+ Add unit"
-Status:    unit drop-down  En Route → On Scene → Transporting → Delivered/Refusal/…
-Own screen: "CrowdCAD ↗"   ·   Every change logs "via CloudTAK: <you>"
+New call:  + New → Type · Priority · Location · Floor · map point · Complaint (no PHI) → Create
+Assign:    open the call → Closest units → Assign   (the phone buzzes)
+Status:    per unit on the call: Available · Responding · On Scene · Transporting · Out of Service
+Close:     Close / Cancel → the marker leaves every map
+Units:     + Add (team/supervisor, TAK contact)  ·  ✕ removes   ·  every change logs "via CloudTAK: <you>"
 ```
 
 ### Command card (CloudTAK / WebTAK)
 
 ```
-CloudTAK: Menu → CrowdCAD      WebTAK: Sidebar → CrowdCAD
+CloudTAK: Menu → CrowdCAD Dispatch      WebTAK: Sidebar → CrowdCAD
 Board refreshes every 5 s · P1 first · "Not on the map" should be empty
 Warning above the board = bridge down; data is the last good copy
 ```

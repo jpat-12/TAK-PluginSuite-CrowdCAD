@@ -48,6 +48,11 @@ class Publisher:
     def _emit(self, entry, now):
         stale = int(self.config.get("stale_seconds") or 300)
         self.send(cot.render(entry["item"], now, entry["created"], entry["updated"], stale))
+        if entry["item"].closed and self.config.get("delete_closed", True):
+            # Closed / cancelled / gone: the CLOSED message (plugins read the status), then TAK's
+            # delete so every map — CloudTAK and plugin-less ATAK too — drops the marker now,
+            # not when its 90 s stale runs out.
+            self.send(cot.render_delete(entry["item"].uid, entry["item"].kind, now))
 
     def apply(self, record):
         """Publish one event record's current state. Returns the number of messages sent."""

@@ -22,8 +22,9 @@ DEFAULTS = {
     # IANA time zone for the "hhmm - …" prefixes in CrowdCAD logs written by TAK dispatch
     # (CrowdCAD writes browser-local time), e.g. America/Chicago. Empty = the host's zone.
     "timezone": "",
-    # Field status: a medic's status taps in the ATAK CrowdCAD plugin update CrowdCAD (fieldstatus.py),
-    # for units carried by a device (takUid or team_uids). false = ATAK-only, as before.
+    # Field acks: a medic's Acknowledge tap in the ATAK CrowdCAD plugin adds a line to that call's
+    # CrowdCAD log (fieldstatus.py), for units carried by a device (takUid or team_uids). Field users
+    # never change status. false = no field writes and no "last heard"/positions on the boards.
     "field_status": True,
     # A tap from a phone no unit is linked to yet links it to the free unit whose name matches its
     # ATAK callsign ("Team 1" ↔ TEAM1), saved as that unit's takUid. false = only picked contacts.

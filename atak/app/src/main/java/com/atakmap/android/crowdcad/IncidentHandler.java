@@ -5,6 +5,7 @@ import android.os.Looper;
 
 import com.atakmap.android.cot.detail.CotDetailHandler;
 import com.atakmap.android.crowdcad.cot.IucadIncident;
+import com.atakmap.android.crowdcad.model.Assignment;
 import com.atakmap.android.crowdcad.model.Board;
 import com.atakmap.android.crowdcad.model.Incident;
 import com.atakmap.android.maps.MapItem;
@@ -65,7 +66,9 @@ final class IncidentHandler extends CotDetailHandler {
         Incident held = board.incident(incident.uid);
         styler.style(item, held != null ? held : incident);
         if (change != Board.Change.IGNORED) {
-            if (incident.assigned.contains(MapView.getDeviceUid())) {
+            MapView mv = MapView.getMapView();
+            if (Assignment.isMine(incident.assigned, MapView.getDeviceUid(),
+                    mv != null ? mv.getDeviceCallsign() : null)) {
                 assignedNow.add(incident.id);
                 if (alerted.add(incident.id))
                     ui.post(() -> listener.onAssigned(incident));

@@ -112,6 +112,12 @@ The bridge account also needs write access per event (shared with it, or org eve
 
 ## Phase 4: unit status from the field (bi-directional teams) — built 2026-11-19 (`fieldstatus.py`)
 
+**Narrowed 2026-11-25 (Jon):** end users must not change status. The ATAK status buttons and
+Respond are gone; the only field action is **Acknowledge** on an assigned call, which adds one
+line to that call's CrowdCAD log (`<__crowdcad_ack>`, COT_FORMAT.md) and changes no status.
+Callsign self-linking now happens on the first Acknowledge. The status-tap design below is
+history, kept for the reasoning.
+
 As built: taps (a changed `since`) from a device bound to a unit (`takUid` / team_uids) become
 dispatch.py actions through store.py. Decisions (Jon): Available on a call = Detached (last unit →
 CrowdCAD "Resolved"); Respond on an unassigned call = self-assign; Out of service on a call is

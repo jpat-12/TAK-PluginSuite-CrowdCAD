@@ -1,28 +1,22 @@
-"""Field status: a medic's taps in the ATAK CrowdCAD plugin → CrowdCAD (docs/PLAN.md Phase 4).
+"""Field acknowledgements: a medic's Acknowledge tap in the ATAK CrowdCAD plugin → CrowdCAD.
 
-The ATAK plugin puts the device's own unit status on its position report as
-<__iucad_unit status=… incident=… since=…> (StatusReporter.java; IU Event CAD's format). The
-bridge already receives every report in its TAK group; for a device that carries a CrowdCAD unit
-(its `takUid`, or the console's team_uids) a NEW tap — `since` changed — becomes the matching
-CrowdCAD dispatch action, through dispatch.py and store.py like any CloudTAK dispatch:
+Field users can't change status (Jon, 2026-11-25). Status is dispatch's, set in CrowdCAD or the
+CloudTAK dispatch console. A medic can only acknowledge a call they are assigned to:
 
-    Responding / On scene / Transporting  →  En Route / On Scene / Transporting on that incident
-                                             (assigned to it first if dispatch hadn't: self-dispatch)
-    Available        on a call            →  Detached from the call (CrowdCAD closes it "Resolved"
-                                             if it was the last unit), back Available at its post
-                     not on a call        →  Available
-    Out of service   not on a call        →  On Break   (on a call: ignored; dispatch decides)
+    ATAK plugin  →  <__crowdcad_ack incident="CC-007" at="<ms>"/> on the phone's position report
+    bridge       →  one line in that call's CrowdCAD log: "1402 - Team 1 acknowledged the call.
+                    (via ATAK: MEDIC1)". Call and team status are left alone.
 
-A phone no unit is linked to yet (not picked as a contact when the event was made, e.g. an event
-made in CrowdCAD) links itself on its first tap: if its ATAK callsign matches exactly one free unit
-name across the live events ("Team 1" ↔ TEAM1), that unit's `takUid` is set to the phone in the
-same write as the tap (claim_by_callsign; anyone in the bridge's TAK group can dispatch anyway).
-From then on it is an ordinary device unit: no bridge marker, "last heard" on the boards.
+The bridge already receives every report in its TAK group. A device that carries a CrowdCAD unit
+(its `takUid`, or the console's team_uids) is bound to it. A phone no unit is linked to yet links
+itself on its first acknowledgement: if its ATAK callsign matches exactly one free unit name across
+the live events ("Team 1" ↔ TEAM1), that unit's `takUid` is set to the phone in the same write
+(claim_by_callsign). The plugin offers Acknowledge on a call whose bridge unit uid ends in that
+callsign, so an unlinked phone can get there.
 
-Only taps count: the position report repeats its status every few seconds, so a dispatcher's
-later change in CrowdCAD is never undone by a stale report. A tap older than FRESH_MS when the
-bridge first sees that device (e.g. after a bridge restart) is not replayed. Logs say
-"via ATAK: <callsign>".
+Only new taps count: the report repeats its last ack every few seconds, so `at` must change. An ack
+older than FRESH_MS when the bridge first sees that device (e.g. after a bridge restart) is not
+replayed. The <__iucad_unit> status taps from plugins before 0.1.6 are ignored.
 """
 
 import queue
@@ -34,7 +28,7 @@ import xml.etree.ElementTree as ET
 from . import dispatch, mapping
 from .dispatch import Clock, DispatchError
 
-ON_CALL = {"RESP": "En Route", "ONSC": "On Scene", "TRAN": "Transporting"}
+ACK = "__crowdcad_ack"
 FRESH_MS = 120_000
 EVENT_UID = re.compile(rb'<event\b[^>]*?\buid="([^"]{1,200})"')
 POINT = re.compile(rb'<point\b[^>]*?\blat="(-?[0-9.]{1,20})"[^>]*?\blon="(-?[0-9.]{1,20})"')
@@ -42,71 +36,35 @@ WATCH_REFRESH_S = 10
 
 
 def parse(message):
-    """bytes of one CoT <event> → {uid, callsign, status, incident, since} or None."""
-    if b"__iucad_unit" not in message or b"<!DOCTYPE" in message or b"<!ENTITY" in message:
+    """bytes of one CoT <event> → {uid, callsign, incident, at} or None."""
+    if ACK.encode() not in message or b"<!DOCTYPE" in message or b"<!ENTITY" in message:
         return None
     try:
         root = ET.fromstring(message)
     except ET.ParseError:
         return None
-    unit = root.find("detail/__iucad_unit")
-    if unit is None or not root.get("uid"):
+    ack = root.find(f"detail/{ACK}")
+    if ack is None or not root.get("uid") or not (ack.get("incident") or "").strip():
         return None
     try:
-        since = int(float(unit.get("since") or 0))
+        at = int(float(ack.get("at") or 0))
     except ValueError:
+        return None
+    if at <= 0:
         return None
     contact = root.find("detail/contact")
     return {"uid": root.get("uid"), "callsign": (contact.get("callsign") if contact is not None else None) or root.get("uid"),
-            "status": unit.get("status"), "incident": unit.get("incident") or "", "since": since}
-
-
-def _merge(event, patch, more):
-    patch = {**patch, **more}
-    return {**event, **patch}, patch
+            "incident": ack.get("incident").strip(), "at": at}
 
 
 def plan(event, config, unit_name, report, actor, clock):
-    """→ the PATCH for this tap (possibly {} when CrowdCAD already says so). Raises DispatchError
-    when the tap can't be applied (unknown incident, closed call)."""
-    status = report.get("status")
-    calls = event.get("calls") or []
-    open_calls = [c for c in calls if c.get("status") not in dispatch.RESOLVED_CALL_STATUSES]
-    mine = [c for c in open_calls if unit_name in (c.get("assignedTeam") or [])]
+    """→ the PATCH for this acknowledgement. Raises DispatchError when it can't be applied
+    (unknown incident, closed call, unit no longer on it)."""
     prefix = mapping._id_prefix(event, config)
-
-    def unit_status(ev):
-        return next((u.get("status") for u in (ev.get("staff") or []) + (ev.get("supervisor") or [])
-                     if u.get("team") == unit_name), None)
-
-    patch, ev = {}, event
-    if status in ON_CALL:
-        incident = report.get("incident")
-        if incident:
-            target = next((c for c in calls if mapping.incident_id(c, prefix) == incident), None)
-            if target is None:
-                raise DispatchError(f"{incident} isn't a call in this event")
-        else:
-            target = mine[0] if mine else None
-            if target is None:
-                raise DispatchError(f"{unit_name} tapped {status} but isn't on a call")
-        if unit_name not in (target.get("assignedTeam") or []):
-            ev, patch = _merge(ev, patch, dispatch.assign(ev, target["id"], unit_name, actor, clock))
-        wanted = ON_CALL[status]
-        if unit_status(ev) != wanted:
-            ev, patch = _merge(ev, patch, dispatch.status_on_call(ev, target["id"], unit_name, wanted, actor, clock))
-        return patch
-    if status == "AVL":
-        if mine:
-            for call in mine:
-                ev, patch = _merge(ev, patch, dispatch.status_on_call(ev, call["id"], unit_name, "Detached", actor, clock))
-            return patch
-        return dispatch.unit_status(ev, unit_name, "Available", actor, clock) if unit_status(ev) != "Available" else {}
-    if status == "OOS":
-        if mine or unit_status(ev) == "On Break":
-            return {}
-        return dispatch.unit_status(ev, unit_name, "On Break", actor, clock)
-    return {}
+    target = next((c for c in event.get("calls") or [] if mapping.incident_id(c, prefix) == report["incident"]), None)
+    if target is None:
+        raise DispatchError(f"{report['incident']} isn't a call in this event")
+    return dispatch.acknowledge(event, target["id"], unit_name, actor, clock)
 
 
 def link_device(event, unit_name, uid):
@@ -128,12 +86,12 @@ def link_device(event, unit_name, uid):
 
 
 class FieldStatus:
-    """Consumes inbound CoT (TakClient.on_message) on its own thread and applies taps."""
+    """Consumes inbound CoT (TakClient.on_message) on its own thread and applies acknowledgements."""
 
     def __init__(self, publisher, store, config, log=print, now_ms=None):
         self.publisher, self.store, self.config, self.log = publisher, store, config, log
         self.now_ms = now_ms or (lambda: int(time.time() * 1000))
-        self.seen = {}                      # device uid → last `since` acted on (or skipped)
+        self.seen = {}                      # device uid → last ack `at` acted on (or skipped)
         self.heard = {}                     # device uid → ms of its last message of any kind (board "last heard")
         self.positions = {}                 # device uid → (lat, lon) of its last report with a fix (board radar)
         self._watch, self._watch_at = set(), 0.0
@@ -165,7 +123,7 @@ class FieldStatus:
                         lat = lon = 0.0
                     if (lat, lon) != (0.0, 0.0) and abs(lat) <= 90 and abs(lon) <= 180:   # 0,0 = no GPS fix yet
                         self.positions[uid] = (lat, lon)
-        if b"__iucad_unit" in message:
+        if ACK.encode() in message:
             try:
                 self._queue.put_nowait(message)
             except queue.Full:
@@ -202,7 +160,7 @@ class FieldStatus:
 
     def handle(self, message):
         report = parse(message)
-        if not report or report["status"] not in (*ON_CALL, "AVL", "OOS"):
+        if not report:
             return None
         bound = self.binding(report["uid"])
         claim = False
@@ -212,10 +170,10 @@ class FieldStatus:
                 return None
             claim = True
         last = self.seen.get(report["uid"])
-        self.seen[report["uid"]] = report["since"]
-        if last == report["since"]:
+        self.seen[report["uid"]] = report["at"]
+        if last == report["at"]:
             return None                                       # the same tap, repeated on every PLI
-        if last is None and self.now_ms() - report["since"] > FRESH_MS:
+        if last is None and self.now_ms() - report["at"] > FRESH_MS:
             return None                                       # an old tap, first seen after a restart
         eid, unit = bound
         actor = f"ATAK: {report['callsign']}"
@@ -232,14 +190,13 @@ class FieldStatus:
             if claim:
                 self.heard[report["uid"]] = self.now_ms()
                 self._watch_at = 0.0                        # watch it for "last heard" right away
-            self.log(f"field status: {unit} ({report['callsign']}) tapped {report['status']}"
-                     f"{' on ' + report['incident'] if report['incident'] else ''} → CrowdCAD"
+            self.log(f"field ack: {unit} ({report['callsign']}) acknowledged {report['incident']} → CrowdCAD log"
                      f"{' (linked ' + report['uid'] + ' to ' + unit + ' by callsign)' if claim else ''}")
             return True
         except DispatchError as error:
             self.last_error = str(error)
-            self.log(f"field status: {unit} tapped {report['status']}: not applied ({error})")
-        except Exception as error:   # PocketBase down etc.: logged, next tap tries again
+            self.log(f"field ack: {unit} on {report['incident']}: not applied ({error})")
+        except Exception as error:   # PocketBase down etc.: logged, not raised; the CoT link must survive
             self.last_error = repr(error)
-            self.log(f"field status: {unit} tapped {report['status']}: CrowdCAD write failed ({error})")
+            self.log(f"field ack: {unit} on {report['incident']}: CrowdCAD write failed ({error})")
         return False

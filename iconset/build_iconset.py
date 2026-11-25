@@ -32,7 +32,7 @@ PNG_DIR = ROOT / "iconset" / "png"   # the same 32px PNGs, for CloudTAK/WebTAK o
 
 NAME = "CrowdCAD"
 GROUP = "CrowdCAD"
-VERSION = 1
+VERSION = 2   # 2: + EMS P1/P2/P3 (the generic EMS icon tinted by call priority)
 SIZE = 32
 # Fixed forever (see docstring). sha256("crowdcad-tak/iconset") so it looks like other TAK UIDs.
 UID = hashlib.sha256(b"crowdcad-tak/iconset").hexdigest()
@@ -45,6 +45,21 @@ ICONS = [
     ("incdnt-comand-white-solid-detail-ems-md1", "EMS MD1.png"),
     ("incdnt-comand-white-solid-detail-ems-sup", "EMS SUP.png"),
 ]
+
+# Call priority → the EMS icon with its white disc tinted like the ATAK plugin's IncidentStyler
+# (model/Priority.java): the bridge names these in each call's <usericon> (cot.py), so every TAK
+# client with this iconset — ATAK, WinTAK, CloudTAK — shows the same marker.
+PRIORITY_ICONS = [("EMS P1.png", (0xE0, 0x31, 0x31)), ("EMS P2.png", (0xF7, 0x67, 0x07)), ("EMS P3.png", (0xFC, 0xC4, 0x19))]
+
+
+def tinted(img: Image.Image, rgb) -> Image.Image:
+    """MULTIPLY by `rgb`: white → the colour, black ring and star stay dark, alpha untouched."""
+    r, g, b, a = img.split()
+    out = Image.merge("RGB", (r.point(lambda v: v * rgb[0] // 255), g.point(lambda v: v * rgb[1] // 255),
+                              b.point(lambda v: v * rgb[2] // 255)))
+    out.putalpha(a)
+    return out
+
 
 DATA_URI = re.compile(r'xlink:href="data:image/png;base64,([^"]+)"', re.S)
 
@@ -72,6 +87,11 @@ def main() -> None:
         buf = io.BytesIO()
         img.save(buf, "PNG", optimize=True)
         pngs[filename] = buf.getvalue()
+        if filename == "EMS.png":
+            for name, rgb in PRIORITY_ICONS:
+                tbuf = io.BytesIO()
+                tinted(img, rgb).save(tbuf, "PNG", optimize=True)
+                pngs[name] = tbuf.getvalue()
 
     xml = [f'<iconset name="{NAME}" uid="{UID}" defaultGroup="{GROUP}" '
            f'skipResize="false" version="{VERSION}">']
