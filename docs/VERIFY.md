@@ -6,7 +6,7 @@
 cd bridge && python -m unittest discover -s tests            # bridge, API, Caddy, TLS (hook tests skip w/o Flask)
 INFRATAK_REPO=../../infra-TAK <python with flask+psutil> -m unittest discover -s tests -p test_infratak_hook.py
 cd ../atak && ./gradlew assembleCivDebug assembleCivRelease testCivDebugUnitTest   # JAVA_HOME = Android Studio jbr
-cd .. && node --test webtak/test/
+cd .. && node --test webtak/test/board.test.mjs
 CLOUDTAK_DIR=/path/to/CloudTAK node cloudtak/check-in-cloudtak.mjs   # CloudTAK's own lint + vue-tsc
 ```
 
@@ -32,6 +32,18 @@ CLOUDTAK_DIR=/path/to/CloudTAK node cloudtak/check-in-cloudtak.mjs   # CloudTAK'
    ATAK does with stale markers (grey vs remove) for the README.
 10. Run infra-TAK **Update Now**, and redeploy any infra-TAK module (rewrites the Caddyfile) →
     the CrowdCAD page and `crowdcad-tak.<fqdn>` still work.
+
+### CrowdCAD on the same host (`--with-crowdcad`)
+
+C1. `sudo bash infratak/install.sh --tak-group <group> --with-crowdcad`: ends with ✓ and a
+    `CrowdCAD: https://crowdcad.<fqdn>` line. `crowdcad_app.py status` says PocketBase up.
+C2. `https://crowdcad.<fqdn>` loads; sign in with `admin` from `credentials.json`;
+    `https://crowdcad.<fqdn>/_/` is PocketBase's login (superuser).
+C3. Sign-up from the app's own screen fails (closed). `crowdcad_app.py add-user x@y` works and
+    that account can sign in.
+C4. `crowdcad-tak check`: CrowdCAD ✓ against `http://127.0.0.1:8090`, no console step needed.
+C5. Re-run C1: no rebuild of an unchanged ref, passwords unchanged, Caddyfile byte-identical.
+C6. `curl -sI http://<public IP>:8090` and `:3100` from outside: refused (loopback only).
 
 ## Clients
 

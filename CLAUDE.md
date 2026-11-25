@@ -33,11 +33,12 @@ Facts an agent needs that the code can't show. Workspace-wide rules: `../CLAUDE.
   ATAK 5.7 from the same tree: add `-Patak.version=5.7.0` and `-Patak.sdk.path/-Psdk.path/-Ptakdev.plugin`
   pointing at the 5.7 SDK (README "Build & test"). `-P` beats local.properties, which stays on 5.6.
   No kotlinx-serialization pin needed (no deps beyond JUnit); add one only if a dep pulls kotlinx in.
+  `gradlew` isn't executable in git on Linux: run `bash ./gradlew`.
 - TAK.gov pipeline zip: `python atak/package-submission.py`. The pipeline gets only the `atak/` Gradle project, so
   build.gradle prefers `atak/VERSION` (the packager's copy, gitignored) over `../VERSION`, and release signing falls
   back to `${buildDir}/android_keystore` (takdev's) when there is no `atak.sdk.path`. Verify by unzipping outside the
   repo and building there. Keep `atak/docs/SUBMISSION.md` (permissions/data answers) true when the manifest changes.
-- WebTAK: `node --test webtak/test/`. CloudTAK: `CLOUDTAK_DIR=… node cloudtak/check-in-cloudtak.mjs`
+- WebTAK: `node --test webtak/test/board.test.mjs` (Node 22 no longer takes a directory). CloudTAK: `CLOUDTAK_DIR=… node cloudtak/check-in-cloudtak.mjs`
   (needs a CloudTAK checkout with npm deps installed — not on this machine as of 2026-11-09).
 
 ## Versioning
@@ -47,7 +48,8 @@ Facts an agent needs that the code can't show. Workspace-wide rules: `../CLAUDE.
 
 ## Never run without Jon asking
 - `infratak/install.sh` / `uninstall.sh` on a real host (makes TAK certs, changes groups, edits
-  Caddy), `cloudtak/install.sh` against a live CloudTAK (rebuilds it), `webtak/install.sh` on a
+  Caddy; `--with-crowdcad` builds and runs CrowdCAD in Docker; `uninstall.sh --crowdcad --purge`
+  deletes every CrowdCAD event and call), `cloudtak/install.sh` against a live CloudTAK (rebuilds it), `webtak/install.sh` on a
   live TAK Server.
 - `crowdcad-tak serve` against a live CrowdCAD + TAK Server during a real event.
 - Anything that pushes or tags.
@@ -58,3 +60,13 @@ Facts an agent needs that the code can't show. Workspace-wide rules: `../CLAUDE.
 - makeCert.sh client keys are encrypted with cert-metadata.sh's PASS (usually `${CAPASS}`).
 - webtak/build.py concatenates modules and drops import lines: no `import { x as y }` in webtak/plugin.
 - Fixture people and patients are invented; keep it that way (no real mission data).
+- `crowdcad_caddy.py` manages two blocks (board, CrowdCAD app). Re-applying must be byte-identical
+  or the heal path unit re-triggers itself: strip both, write both back in one fixed order.
+- **Native dispatch is a port of CrowdCAD v1.6.0's handlers** (`bridge/crowdcad_tak/dispatch.py`,
+  sources named in its docstring). On ANY CrowdCAD upgrade (`--crowdcad-ref`), diff those handlers
+  first and update dispatch.py + tests/test_dispatch.py, or TAK dispatch writes records CrowdCAD
+  no longer expects. Live hook test: `CROWDCAD_LIVE_PB_IMAGE=crowdcad-pocketbase:<ref>
+  CROWDCAD_SRC=/opt/crowdcad-tak/crowdcad/src python -m unittest discover -s tests -p test_pb_hook_live.py`.
+- PocketBase JS hooks run each handler in an isolated VM: helpers must live inside the handler.
+- CrowdCAD's PocketBase rules let any signed-in user read every event; `--with-crowdcad` closes
+  sign-up for that reason. `setup-pocketbase.js` re-opens it on every run, so install re-closes it after.

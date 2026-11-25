@@ -32,7 +32,17 @@ medic's own status on their PLI, and an alert on assignment); the CloudTAK and W
 read the same content from the bridge's board API (docs/API.md). Any TAK client without a
 plugin still sees the markers and zone shapes.
 
-## Phase 2: CrowdCAD deployed by infra-TAK (next)
+## Phase 2: CrowdCAD deployed by infra-TAK (built: `install.sh --with-crowdcad`, `infratak/crowdcad_app.py`)
+
+As built (2026-11-19), differing from the sketch below: CrowdCAD's web app runs on **3100**
+(TAK Portal holds 3000), both containers publish on loopback only, the compose file is our own
+(`<home>/crowdcad/docker-compose.yml`, project `crowdcad`), `setup-pocketbase.js` runs in a
+throwaway `node:22-alpine` container, and **public sign-up is closed** by default (any signed-in
+CrowdCAD user can list every event, so open sign-up on a public host exposes call data); accounts
+come from `crowdcad_app.py add-user`. v1.6.0's Dockerfile COPYs a `next-env.d.ts` the tag lacks;
+`crowdcad_app.py` writes Next's stock one before building.
+
+The original sketch:
 
 Make "CrowdCAD" an infra-TAK module, not just a bridge to one that exists elsewhere:
 `install.sh --with-crowdcad` builds CrowdCAD's own `docker-compose.yml` with
@@ -57,6 +67,23 @@ would break PocketBase's API for the bridge), and running `scripts/setup-pocketb
 
 The same install on a field laptop/NUC is the **offline** answer: CrowdCAD (PocketBase on
 the LAN), TAK Server and the bridge on one box, no internet.
+
+## Built 2026-11-19: dispatch and events from the web clients
+
+- **Dispatch from CloudTAK/WebTAK** embeds CrowdCAD's own dispatch screen (`dispatchUrl`), so
+  every dispatch write is CrowdCAD's own code, signed in as the dispatcher. Chosen over native
+  buttons: CrowdCAD's assign/status cascade is ~1,000 lines of client logic (detach, supervisor
+  and equipment release, clinic outcomes) that the bridge would have to track release by release.
+- **Native dispatch from CloudTAK** (same day, at Jon's request): new call, assign, status on call
+  incl. the closing cascade, availability and post, ported from CrowdCAD v1.6.0's handlers into
+  `dispatch.py` and written compare-and-swap through a PocketBase hook (`store.py`). This is the
+  Phase 3/4 write problem solved for TAK-initiated dispatch: the hook makes the bridge's writes
+  safe against CrowdCAD's; CrowdCAD's own read-then-PATCH window remains (it already exists
+  between two CrowdCAD dispatchers). Embedding stays available as the *CrowdCAD* button.
+- **New event from CloudTAK** (manage API, docs/API.md): the bridge creates the event record.
+  Safe where native dispatch isn't, because a new record can't race a dispatcher. TAK contacts
+  become units with `takUid`, so device binding is per event (config `team_uids` still works for
+  events made in CrowdCAD).
 
 ## Phase 3: TAK → CrowdCAD (the proposal's model 2: "medic drops a marker → new call")
 
@@ -83,7 +110,16 @@ races a dispatcher's edit **silently drops one of them**. Options, best first:
 
 The bridge account also needs write access per event (shared with it, or org events).
 
-## Phase 4: unit status from the field (bi-directional teams)
+## Phase 4: unit status from the field (bi-directional teams) — built 2026-11-19 (`fieldstatus.py`)
+
+As built: taps (a changed `since`) from a device bound to a unit (`takUid` / team_uids) become
+dispatch.py actions through store.py. Decisions (Jon): Available on a call = Detached (last unit →
+CrowdCAD "Resolved"); Respond on an unassigned call = self-assign; Out of service on a call is
+ignored. Phones nobody picked (events made in CrowdCAD) link themselves: a tap from an unlinked
+phone whose ATAK callsign matches exactly one free unit name ("Team 1" ↔ TEAM1) writes that
+unit's `takUid` with the tap (`claim_by_callsign`, default on). Conflict rule: only a new tap acts, so the newest human action wins either way. Spoofing:
+any authenticated device in the TAK group could send a PLI with another unit's uid; acceptable
+inside one group, revisit if groups get wide. The original sketch:
 
 Medics set RESP / ONSC / TRAN on their own device (`<__iucad_unit>` on their PLI); the
 bridge writes the matching CrowdCAD team status (reverse of the COT_FORMAT unit table) for

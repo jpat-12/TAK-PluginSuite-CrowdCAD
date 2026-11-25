@@ -1,6 +1,7 @@
 # Board API — what the web clients build against
 
-The bridge's only HTTP interface for clients. **Read-only**, and it carries exactly what the
+The bridge's only HTTP interface for clients. **Read-only** (dispatching happens in CrowdCAD's own
+screen, which the clients embed via `dispatchUrl`; see below), and it carries exactly what the
 bridge already sends as CoT (built from the bridge's record of what TAK was told, never from
 CrowdCAD records directly), so it can't show anything a TAK device couldn't see, and no
 patient data. ATAK doesn't use it: the ATAK plugin builds the same board from CoT.
@@ -30,9 +31,11 @@ Clients refuse a different `api` major instead of rendering a wrong board.
   "api": 1,
   "generated": 1794701000000,
   "bridge": {"crowdcad": "live", "tak": true, "version": "0.1.0"},
+  "crowdcadUrl": "https://crowdcad.tak.example.org",
   "events": [{
     "id": "e1f2g3h4i5j6k7l",
     "name": "Demo Football Game",
+    "dispatchUrl": "https://crowdcad.tak.example.org/events/e1f2g3h4i5j6k7l/dispatch",
     "calls": [{
       "uid": "crowdcad-e1f2g3h4i5j6k7l-call-c1", "id": "CC-007", "status": "ONSC",
       "type": "Chest pain", "priority": 1, "location": "Sec 104", "reportedBy": "Event Services",
@@ -57,6 +60,37 @@ Clients refuse a different `api` major instead of rendering a wrong board.
 | `units[].status` | IU unit code, or `null` when CrowdCAD's team status has no IU equivalent (never defaulted) |
 | `units[].device` | team carried by its own ATAK device (`team_uids`): listed with dispatch's status for it; `lat/lon` null, since its position is the device's PLI |
 | `unplaced` | calls/teams CrowdCAD can't place on the map (show them; nobody else will) |
+| `crowdcadUrl` | the CrowdCAD web app (`crowdcad_app_url`), or `null` when not configured |
+| `endable` | the event was created from TAK (owned by the bridge account), so the manage API can end it |
+| `dispatchUrl` | CrowdCAD's own dispatch screen for this event, or `null`. Clients show a **Dispatch** button that embeds it (CloudTAK floating pane, WebTAK floating window) with an "open in new window" link. The dispatcher signs in to CrowdCAD there as themselves, so every change follows CrowdCAD's own rules and is attributed in its call log. The bridge never writes to CrowdCAD |
+
+## Manage API: create/end events from TAK (`Authorization: Bearer <manage_token>`)
+
+The bridge's only writes to CrowdCAD (`bridge/crowdcad_tak/manage.py`). The manage token goes
+to CloudTAK's server half only (its New event form), never the WebTAK bundle. These responses
+carry no CORS headers. `404` when the bridge has no manage token; `401` with the wrong one (the
+board token doesn't work here). `X-TAK-User` (the CloudTAK username) is logged with each write.
+
+| Call | Does |
+|---|---|
+| `GET /api/v1/manage/venues` | `{"venues": [{"id", "name", "posts", "clinics", "mapped"}]}`. `mapped`: a layer is georeferenced, so its posts reach the TAK map |
+| `POST /api/v1/manage/events` | body `{"name", "date": "YYYY-MM-DD", "venueId", "units": [{"name", "kind": "team"\|"supervisor", "uid", "callsign"}]}` → `{"id", "name", "dispatchUrl"}`. Writes a new `events` record in the shape CrowdCAD's own Create Event page writes, status `active`, `isOrgEvent: true`, owned by the bridge account. Each unit is a team (`staff`) or supervisor entry plus `takUid` (the contact's device), so that device carries the unit: its PLI is the unit's position and assignment alerts go to it. `400` with a readable `error` for bad input; nothing is written then |
+| `POST /api/v1/manage/events/{id}/end` | `{ended: true, endedAt}` (CrowdCAD's handleEndEvent). `403` for events not created from TAK |
+| `GET /api/v1/manage/events/{id}/dispatch` | Native dispatch view in CrowdCAD's own names: `units` (`name, kind, status, location, device, lat, lon`), open `calls` (`id, number, status, location, chiefComplaint, priority, assigned, lat, lon`), `posts` (`name, lat, lon`), `clinics`, and the allowed `statuses.onCall` / `statuses.availability`. Never age, sex, notes, logs or member names |
+| `POST …/events/{id}/calls` | `{location, chiefComplaint, priority, assign?}` → `{callId}` (quickcallmodal) |
+| `POST …/events/{id}/calls/{callId}/assign` | `{unit}` (handleAddTeamToCall / supervisor assign) |
+| `POST …/events/{id}/calls/{callId}/status` | `{unit, status, clinicId?, transportUnit?}`: `En Route, On Scene, Transporting, Pending Transport, Detached`, or a closing status (`Delivered, Refusal, NMM, Unable to Locate, Rolled from Scene`) with CrowdCAD's full cascade (handleTeamStatusChange) |
+| `POST …/events/{id}/units/status` | `{unit, status}`: `Available, On Break, In Clinic` (handleStatusChange) |
+| `POST …/events/{id}/units/post` | `{unit, post}` (handleLocationChange) |
+
+Dispatch writes are CrowdCAD v1.6.0's own handlers ported to `bridge/crowdcad_tak/dispatch.py`,
+applied by `store.py` compare-and-swap through the PocketBase hook `infratak/pb_hooks/crowdcad_tak.pb.js`
+(installed with `--with-crowdcad`): the write lands only if what the bridge read is unchanged,
+else it re-reads and re-applies, so it never overwrites a newer CrowdCAD change. The hook enforces
+the events collection's own update rule. Errors: `404` unknown event/call/unit, `400` bad
+status/input, `403` the bridge account can't update that event (make it an org event or share
+it with the bridge account), `409` closed call / ended event / kept changing. Log lines say
+"(via CloudTAK: <user>)" and use the bridge's `timezone` setting for their "hhmm" prefix.
 
 Additive changes (new fields) keep `api: 1`; clients ignore fields they don't know. Removing or
 renaming a field bumps `api` and every client together.

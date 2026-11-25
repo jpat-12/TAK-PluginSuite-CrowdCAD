@@ -56,7 +56,7 @@ function registerWithWebTAK() {
     });
     pluginApi.registerPlugin(new pluginApi.models.Plugin({
       name: PLUGIN_ID,
-      description: 'Live CrowdCAD medical calls and team status (read-only).',
+      description: 'Live CrowdCAD medical calls and team status; Dispatch opens CrowdCAD.',
       version: VERSION.startsWith('__') ? '0.0.0' : VERSION,
       tools: [tool],
       drawers: drawer ? [drawer] : [],

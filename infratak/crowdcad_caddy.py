@@ -5,14 +5,20 @@ Publishes crowdcad-tak.<fqdn> → the bridge's /api/v1/* and /healthz only, for 
 CloudTAK plugins (ATAK needs nothing: it reads CoT). Everything else on that host is a 404,
 so the console-only /status never leaves the box.
 
+With --app-host (install.sh --with-crowdcad), a second managed block publishes the CrowdCAD
+app this host runs itself (crowdcad_app.py): one site, Next.js plus PocketBase behind it.
+
 infra-TAK rewrites /etc/caddy/Caddyfile whenever a module is deployed, but since v0.2.0
 carries everything below "# --- User-added blocks (do not remove) ---" into the new file, so
 the block goes there. crowdcad-tak-heal.path re-runs `ensure` after any rewrite that drops it.
 Same mechanics as InfraTAK-Plugin-Aleph's aleph_caddy.py. Stdlib only (system python3).
 
     crowdcad_caddy.py ensure [--reload] [--caddyfile F] [--console-dir D] [--data D] [--domain H]
-    crowdcad_caddy.py remove [--reload] [--caddyfile F]
+                             [--app-host H --app-web ADDR --app-pocketbase ADDR]
+    crowdcad_caddy.py remove [--reload] [--caddyfile F]        (the board block only)
+    crowdcad_caddy.py app-remove [--reload] [--caddyfile F]    (the CrowdCAD app block only)
     crowdcad_caddy.py host   [--console-dir D] [--data D] [--domain H]
+    crowdcad_caddy.py app-host [--console-dir D] [--app-domain H]   (default crowdcad.<fqdn>)
 """
 
 import argparse
@@ -25,6 +31,8 @@ import time
 
 BEGIN = "# >>> crowdcad-tak (managed by TAK-PluginSuite-CrowdCAD — edits here are overwritten)"
 END = "# <<< crowdcad-tak"
+APP_BEGIN = "# >>> crowdcad-app (managed by TAK-PluginSuite-CrowdCAD — edits here are overwritten)"
+APP_END = "# <<< crowdcad-app"
 USER_BLOCKS_MARKER = "# --- User-added blocks (do not remove) ---"
 DEFAULT_CADDYFILE = "/etc/caddy/Caddyfile"
 DEFAULT_DATA = "/opt/crowdcad-tak/data"
@@ -65,6 +73,16 @@ def site_host(console_dir=None, data=DEFAULT_DATA, override=None):
     return public.split("://", 1)[-1].strip("/") or None
 
 
+def app_site_host(console_dir=None, override=None):
+    """Where install.sh --with-crowdcad publishes CrowdCAD: --crowdcad-domain (a bare label gets
+    the base FQDN appended), else crowdcad.<fqdn>."""
+    base = fqdn(console_dir)
+    custom = (override or "").strip()
+    if custom:
+        return custom if "." in custom or not base else f"{custom}.{base}"
+    return f"crowdcad.{base}" if base else None
+
+
 def upstream(data=DEFAULT_DATA):
     return read_json(os.path.join(data, "config.json")).get("status_listen") or "127.0.0.1:8782"
 
@@ -88,16 +106,54 @@ def block(host, target):
     ])
 
 
-def strip(text):
-    while BEGIN in text and END in text:
-        start = text.index(BEGIN)
-        stop = text.index(END, start) + len(END)
+def app_block(host, web, pocketbase):
+    """The CrowdCAD app (PLAN.md Phase 2): one host, so the browser's NEXT_PUBLIC_POCKETBASE_URL
+    is this same origin. Not behind Authentik forward_auth: CrowdCAD has its own login, and
+    forward_auth would break PocketBase's API for the bridge and the app. No gzip on PocketBase
+    paths: compressing its realtime SSE stream would buffer it."""
+    return "\n".join([
+        APP_BEGIN,
+        f"{host} {{",
+        "    handle /api/contact* {",           # Next.js's only API route
+        f"        reverse_proxy {web}",
+        "    }",
+        "    @pocketbase path /api/* /_/*",     # PocketBase REST + realtime, and its admin UI
+        "    handle @pocketbase {",
+        f"        reverse_proxy {pocketbase}",
+        "    }",
+        "    handle {",
+        "        encode gzip",
+        f"        reverse_proxy {web}",
+        "    }",
+        "}",
+        APP_END,
+    ])
+
+
+def strip(text, begin=BEGIN, end=END):
+    while begin in text and end in text:
+        start = text.index(begin)
+        stop = text.index(end, start) + len(end)
         text = text[:start].rstrip("\n") + "\n" + text[stop:].lstrip("\n")
     return text
 
 
-def ensure(text, new_block):
-    text = strip(text).rstrip("\n")
+def ensure(text, new_block, begin=BEGIN, end=END, after=None):
+    """Our block, below the user-blocks marker, with as little movement as possible:
+    already there (below the marker) → replaced in place, so an unchanged block means a
+    byte-identical file wherever it sits. Moving it to the end every time ping-pongs with
+    other plugins' heal units doing the same (Aleph's), each write re-triggering the other.
+    Missing → inserted right after the `after` block if given, else appended at the end."""
+    marker = text.find(USER_BLOCKS_MARKER)
+    start = text.find(begin)
+    if marker >= 0 and start > marker and text.find(end, start) > start:
+        stop = text.index(end, start) + len(end)
+        return text[:start] + new_block + strip(text[stop:], begin, end)
+    text = strip(text, begin, end)
+    if after and after in text and text.find(after) > text.find(USER_BLOCKS_MARKER) >= 0:
+        cut = text.index(after) + len(after)
+        return text[:cut] + "\n\n" + new_block + text[cut:]
+    text = text.rstrip("\n")
     if USER_BLOCKS_MARKER not in text:
         text += "\n\n" + USER_BLOCKS_MARKER
     return text + "\n\n" + new_block + "\n"
@@ -146,7 +202,9 @@ def update_config(data, host, console_dir):
         config["public_url"], changed = f"https://{host}", True
     base = fqdn(console_dir)
     if base and not config.get("cors_origins"):
-        config["cors_origins"] = [f"https://{base}:8443", f"https://{base}:8446", f"https://tak.{base}"]
+        # infra-TAK publishes WebTAK at takserver.<fqdn> (Caddy → 8446); the others are direct ports.
+        config["cors_origins"] = [f"https://{base}:8443", f"https://{base}:8446", f"https://tak.{base}",
+                                  f"https://takserver.{base}"]
         changed = True
     if not changed:
         return
@@ -162,12 +220,16 @@ def update_config(data, host, console_dir):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("action", choices=("ensure", "remove", "host"))
+    parser.add_argument("action", choices=("ensure", "remove", "app-remove", "host", "app-host"))
     parser.add_argument("--caddyfile", default=DEFAULT_CADDYFILE)
     parser.add_argument("--console-dir", default=None)
     parser.add_argument("--data", default=DEFAULT_DATA)
     parser.add_argument("--domain", default=None)
     parser.add_argument("--reload", action="store_true")
+    parser.add_argument("--app-host", default=None, help="also publish the CrowdCAD app at this host")
+    parser.add_argument("--app-web", default="127.0.0.1:3100")
+    parser.add_argument("--app-pocketbase", default="127.0.0.1:8090")
+    parser.add_argument("--app-domain", default=None, help="app-host: override for crowdcad.<fqdn>")
     args = parser.parse_args(argv)
     console_dir = args.console_dir or find_console_dir()
     host = site_host(console_dir, args.data, args.domain)
@@ -175,6 +237,10 @@ def main(argv=None):
     if args.action == "host":
         print(host or "")
         return 0 if host else 1
+    if args.action == "app-host":
+        app_host = app_site_host(console_dir, args.app_domain)
+        print(app_host or "")
+        return 0 if app_host else 1
     if not os.path.isfile(args.caddyfile):
         print(f"[crowdcad-tak] {args.caddyfile} not found — deploy Caddy in infra-TAK first, then re-run.")
         return 2
@@ -183,11 +249,19 @@ def main(argv=None):
     if args.action == "remove":
         print(f"[crowdcad-tak] caddy: {write_and_reload(args.caddyfile, strip(text), args.reload)}")
         return 0
+    if args.action == "app-remove":
+        print(f"[crowdcad-tak] caddy app: {write_and_reload(args.caddyfile, strip(text, APP_BEGIN, APP_END), args.reload)}")
+        return 0
     if not host:
         print("[crowdcad-tak] No base FQDN in infra-TAK settings and no --domain; web clients can't reach the board.")
         return 3
-    result = write_and_reload(args.caddyfile, ensure(text, block(host, upstream(args.data))), args.reload)
-    print(f"[crowdcad-tak] caddy {host}: {result}")
+    # Each block in place (see ensure): a re-run with nothing changed is byte-identical, which
+    # is what ends the heal path unit's own re-trigger and never moves a neighbour's block.
+    text = ensure(text, block(host, upstream(args.data)))
+    if args.app_host:
+        text = ensure(text, app_block(args.app_host, args.app_web, args.app_pocketbase), APP_BEGIN, APP_END, after=END)
+    result = write_and_reload(args.caddyfile, text, args.reload)
+    print(f"[crowdcad-tak] caddy {host}{' + ' + args.app_host if args.app_host else ''}: {result}")
     update_config(args.data, host, console_dir)
     return 0
 

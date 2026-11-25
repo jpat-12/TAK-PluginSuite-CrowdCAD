@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="300" viewBox="0 0 960 300" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <rect width="960" height="300" rx="12" fill="#0f1219"/>
+  <text x="30" y="40" fill="#f1f5f9" font-size="18" font-weight="700">Setup roadmap</text>
+  <text x="30" y="60" fill="#94a3b8" font-size="12">Steps 1–4 are required. 5 and 6 add the clients your people use. Run 7 before every event.</text>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#475569"/></marker></defs>
+  <g font-size="12">
+    <!-- row 1 -->
+    <g><rect x="30" y="86" width="200" height="80" rx="10" fill="#161b26" stroke="#06b6d4"/>
+      <circle cx="54" cy="110" r="13" fill="#06b6d4"/><text x="54" y="115" text-anchor="middle" fill="#04131a" font-weight="700">1</text>
+      <text x="76" y="115" fill="#f1f5f9" font-weight="600">Prepare</text>
+      <text x="44" y="140" fill="#94a3b8">DNS, TAK group, venue</text><text x="44" y="156" fill="#94a3b8">with GeoJSON map</text></g>
+    <g><rect x="260" y="86" width="200" height="80" rx="10" fill="#161b26" stroke="#06b6d4"/>
+      <circle cx="284" cy="110" r="13" fill="#06b6d4"/><text x="284" y="115" text-anchor="middle" fill="#04131a" font-weight="700">2</text>
+      <text x="306" y="115" fill="#f1f5f9" font-weight="600">Install the bridge</text>
+      <text x="274" y="140" fill="#94a3b8">install.sh --tak-group …</text><text x="274" y="156" fill="#94a3b8">(+ --with-crowdcad)</text></g>
+    <g><rect x="490" y="86" width="200" height="80" rx="10" fill="#161b26" stroke="#06b6d4"/>
+      <circle cx="514" cy="110" r="13" fill="#06b6d4"/><text x="514" y="115" text-anchor="middle" fill="#04131a" font-weight="700">3</text>
+      <text x="536" y="115" fill="#f1f5f9" font-weight="600">Connect CrowdCAD</text>
+      <text x="504" y="140" fill="#94a3b8">Console → CrowdCAD:</text><text x="504" y="156" fill="#94a3b8">URL + bridge account</text></g>
+    <g><rect x="720" y="86" width="210" height="80" rx="10" fill="#161b26" stroke="#06b6d4"/>
+      <circle cx="744" cy="110" r="13" fill="#06b6d4"/><text x="744" y="115" text-anchor="middle" fill="#04131a" font-weight="700">4</text>
+      <text x="766" y="115" fill="#f1f5f9" font-weight="600">Verify</text>
+      <text x="734" y="140" fill="#94a3b8">crowdcad-tak check</text><text x="734" y="156" fill="#94a3b8">crowdcad-tak preview</text></g>
+    <line x1="230" y1="126" x2="258" y2="126" stroke="#475569" stroke-width="2" marker-end="url(#a)"/>
+    <line x1="460" y1="126" x2="488" y2="126" stroke="#475569" stroke-width="2" marker-end="url(#a)"/>
+    <line x1="690" y1="126" x2="718" y2="126" stroke="#475569" stroke-width="2" marker-end="url(#a)"/>
+    <!-- row 2 -->
+    <path d="M825 166 L825 190 L130 190 L130 206" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#a)"/>
+    <g><rect x="30" y="208" width="200" height="70" rx="10" fill="#161b26" stroke="#334155" stroke-dasharray="5 4"/>
+      <circle cx="54" cy="232" r="13" fill="#334155"/><text x="54" y="237" text-anchor="middle" fill="#f1f5f9" font-weight="700">5</text>
+      <text x="76" y="237" fill="#f1f5f9" font-weight="600">Web clients</text>
+      <text x="44" y="262" fill="#94a3b8">--cloudtak --webtak</text></g>
+    <g><rect x="260" y="208" width="200" height="70" rx="10" fill="#161b26" stroke="#334155" stroke-dasharray="5 4"/>
+      <circle cx="284" cy="232" r="13" fill="#334155"/><text x="284" y="237" text-anchor="middle" fill="#f1f5f9" font-weight="700">6</text>
+      <text x="306" y="237" fill="#f1f5f9" font-weight="600">ATAK devices</text>
+      <text x="274" y="262" fill="#94a3b8">build APK, adb install</text></g>
+    <g><rect x="490" y="208" width="440" height="70" rx="10" fill="rgba(16,185,129,.08)" stroke="#10b981"/>
+      <circle cx="514" cy="232" r="13" fill="#10b981"/><text x="514" y="237" text-anchor="middle" fill="#04131a" font-weight="700">7</text>
+      <text x="536" y="237" fill="#f1f5f9" font-weight="600">Pre-event check (every event)</text>
+      <text x="504" y="262" fill="#94a3b8">Banner green · “Not on the map” empty · teams mapped to devices</text></g>
+    <line x1="230" y1="243" x2="258" y2="243" stroke="#475569" stroke-width="2" marker-end="url(#a)"/>
+    <line x1="460" y1="243" x2="488" y2="243" stroke="#475569" stroke-width="2" marker-end="url(#a)"/>
+  </g>
+</svg>

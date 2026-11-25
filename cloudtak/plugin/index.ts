@@ -1,8 +1,9 @@
 // CrowdCAD for TAK — CloudTAK plugin entry. Lands at <CloudTAK>/api/web/plugins/crowdcad/index.ts
 // (or app/plugins/crowdcad/ on 13.1xx+), found by CloudTAK's `plugins/*/index.ts` build glob.
 //
-// A read-only board of the live CrowdCAD event: open calls (priority first), teams and their
-// status, and anything CrowdCAD couldn't place on the map. The markers themselves arrive as
+// A board of the live CrowdCAD event: open calls (priority first), teams and their
+// status, and anything CrowdCAD couldn't place on the map. Its Dispatch button opens CrowdCAD's own
+// dispatch screen in a floating pane (DispatchFrame.vue), signed in as the dispatcher. The markers themselves arrive as
 // ordinary CoT from TAK Server like every other track — this plugin doesn't draw any.
 //
 // Lifecycle (AGENTS.md §2): routes in install() only; enable()/disable() add/remove just the
@@ -12,6 +13,8 @@ import { markRaw } from 'vue';
 import type { MenuItemConfig, PluginAPI, PluginInstance } from '@tak-ps/cloudtak';
 import { IconAmbulance } from '@tabler/icons-vue';
 import CrowdCadPanel from './components/CrowdCadPanel.vue';
+import NewEventPanel from './components/NewEventPanel.vue';
+import DispatchPanel from './components/DispatchPanel.vue';
 import { setPluginApi } from './lib/plugin-api.ts';
 
 const MENU_KEY = 'plugin-crowdcad';
@@ -28,6 +31,8 @@ export default class CrowdCadPlugin implements PluginInstance {
         void app;
         setPluginApi(api);
         api.routes.add({ path: 'plugin-crowdcad', name: ROUTE_NAME, component: markRaw(CrowdCadPanel) }, 'home-menu');
+        api.routes.add({ path: 'plugin-crowdcad-new', name: `${ROUTE_NAME}-new`, component: markRaw(NewEventPanel) }, 'home-menu');
+        api.routes.add({ path: 'plugin-crowdcad-dispatch', name: `${ROUTE_NAME}-dispatch`, component: markRaw(DispatchPanel) }, 'home-menu');
         return new CrowdCadPlugin(api);
     }
 
@@ -37,7 +42,7 @@ export default class CrowdCadPlugin implements PluginInstance {
             label: 'CrowdCAD',
             route: ROUTE_NAME,
             tooltip: 'Live medical calls and teams',
-            description: 'CrowdCAD event dispatch board: open calls, team status',
+            description: 'CrowdCAD board (open calls, team status) and CrowdCAD dispatch',
             icon: markRaw(IconAmbulance) as unknown as MenuItemConfig['icon'],
         } as MenuItemConfig);
     }

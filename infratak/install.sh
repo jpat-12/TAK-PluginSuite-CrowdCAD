@@ -16,6 +16,11 @@
 #      page) is an import hook in the console's site-packages, never an app.py patch: infra-TAK's
 #      "Update Now" runs `git checkout --force`, which erases app.py edits.
 #
+#   4. Optionally (--with-crowdcad), CrowdCAD itself: the unmodified upstream release on its
+#      PocketBase backend, built with Docker (infratak/crowdcad_app.py), published at
+#      crowdcad.<fqdn>, with the bridge pointed at it and accounts made for it. Public sign-up
+#      is closed by default (any CrowdCAD user can read every event's calls).
+#
 # Usage:
 #   sudo bash infratak/install.sh [options]          install, or update in place (idempotent)
 #
@@ -31,6 +36,12 @@
 #   --cloudtak [DIR]       also install the CloudTAK plugin into DIR (default: the running
 #                          CloudTAK, else ~/CloudTAK) and rebuild CloudTAK (5–15 min)
 #   --webtak [DIR]         also install the WebTAK plugin into DIR (default /opt/tak/extract/webtak)
+#   --with-crowdcad        also run CrowdCAD on this host (Docker; first build takes several minutes)
+#   --crowdcad-domain HOST its public host (default crowdcad.<infra-TAK fqdn>; a bare label gets the fqdn)
+#   --crowdcad-ref TAG     CrowdCAD release to build (default v1.6.0, the one the bridge is checked against)
+#   --crowdcad-admin EMAIL first CrowdCAD admin + PocketBase superuser (default admin@<crowdcad host>)
+#   --crowdcad-signup MODE closed (default: accounts via crowdcad_app.py add-user) | open (CrowdCAD's default)
+#   --crowdcad-rebuild     rebuild CrowdCAD's images even if nothing changed (re-runs skip the build)
 #   --no-restart           don't restart the infra-TAK console (hook loads on its next restart)
 #   --pull                 git pull the source checkout first (/opt/crowdcad-tak/src)
 #
@@ -48,6 +59,7 @@ source "$SRC_DIR/infratak/lib.sh"
 ORIGINAL_ARGS=("$@")
 TAK_GROUPS=(); CROWDCAD_URL=""; TAK_CA=""; HOOK_MODE="pth"; DO_RESTART=1; DO_PULL=0
 DOMAIN=""; DO_CADDY=1; CLOUDTAK=""; WEBTAK=""
+WITH_CROWDCAD=0; CROWDCAD_DOMAIN=""; CROWDCAD_REF=""; CROWDCAD_ADMIN=""; CROWDCAD_SIGNUP=""; CROWDCAD_REBUILD=0
 usage() { sed -n '/^# Usage:/,/^# Re-run/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -59,6 +71,12 @@ while [ $# -gt 0 ]; do
         --no-caddy)     DO_CADDY=0 ;;
         --cloudtak)     if [ -n "${2:-}" ] && [ "${2#--}" = "$2" ]; then CLOUDTAK="$2"; shift; else CLOUDTAK="auto"; fi ;;
         --webtak)       if [ -n "${2:-}" ] && [ "${2#--}" = "$2" ]; then WEBTAK="$2"; shift; else WEBTAK="/opt/tak/extract/webtak"; fi ;;
+        --with-crowdcad)    WITH_CROWDCAD=1 ;;
+        --crowdcad-domain)  shift; CROWDCAD_DOMAIN="${1:-}" ;;
+        --crowdcad-ref)     shift; CROWDCAD_REF="${1:-}" ;;
+        --crowdcad-admin)   shift; CROWDCAD_ADMIN="${1:-}" ;;
+        --crowdcad-signup)  shift; CROWDCAD_SIGNUP="${1:-}" ;;
+        --crowdcad-rebuild) CROWDCAD_REBUILD=1 ;;
         --no-restart)   DO_RESTART=0 ;;
         --pull)         DO_PULL=1 ;;
         -h|--help)      usage; exit 0 ;;
@@ -67,6 +85,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 case "$HOOK_MODE" in pth|append|none) ;; *) echo "--console-hook must be pth, append or none" >&2; exit 2 ;; esac
+case "$CROWDCAD_SIGNUP" in ""|open|closed) ;; *) echo "--crowdcad-signup must be open or closed" >&2; exit 2 ;; esac
 [ "$(id -u)" -eq 0 ] || { echo "ERROR: run as root (sudo bash $0)" >&2; exit 1; }
 
 # --- 0. Source checkout ---------------------------------------------------------------------
@@ -98,9 +117,11 @@ rm -rf "$CROWDCAD_HOME/app/crowdcad_tak"
 cp -a "$SRC/bridge/crowdcad_tak" "$CROWDCAD_HOME/app/crowdcad_tak"
 cp "$SRC/VERSION" "$CROWDCAD_HOME/app/VERSION"
 find "$CROWDCAD_HOME/app" -name __pycache__ -prune -exec rm -rf {} +
-for f in crowdcad_infratak.py crowdcad_infratak_boot.py crowdcad_infratak.pth crowdcad_caddy.py lib.sh heal.sh uninstall.sh; do
+for f in crowdcad_infratak.py crowdcad_infratak_boot.py crowdcad_infratak.pth crowdcad_caddy.py crowdcad_app.py lib.sh heal.sh uninstall.sh; do
     install -m 0755 "$SRC/infratak/$f" "$CROWDCAD_HOME/bin/$f"
 done
+mkdir -p "$CROWDCAD_HOME/bin/pb_hooks"
+install -m 0644 "$SRC/infratak/pb_hooks/crowdcad_tak.pb.js" "$CROWDCAD_HOME/bin/pb_hooks/crowdcad_tak.pb.js"
 
 cat > /usr/local/bin/crowdcad-tak <<EOF
 #!/bin/bash
@@ -132,8 +153,10 @@ fi
 if [ "${#TAK_GROUPS[@]}" -gt 0 ] && [ -f /opt/tak/utils/UserManager.jar ] && [ -s "$CERT_FILES/crowdcad.pem" ]; then
     cmd=(java -jar /opt/tak/utils/UserManager.jar certmod)
     for g in "${TAK_GROUPS[@]}"; do cmd+=(-g "$g"); done
-    "${cmd[@]}" "$CERT_FILES/crowdcad.pem" >/dev/null && log "Bridge cert in TAK group(s): ${TAK_GROUPS[*]}" \
+    um_dir="$(mktemp -d)"
+    (cd "$um_dir" && "${cmd[@]}" "$CERT_FILES/crowdcad.pem" >/dev/null) && log "Bridge cert in TAK group(s): ${TAK_GROUPS[*]}" \
         || warn "Group assignment failed — set it in TAK Server's user management."
+    rm -rf "$um_dir"
 elif [ "${#TAK_GROUPS[@]}" -eq 0 ]; then
     warn "No --tak-group given: the bridge's markers go to __ANON__. Re-run with --tak-group <group>."
 fi
@@ -166,6 +189,8 @@ if "tak_key_password" not in secrets:
     secrets["tak_key_password"] = password if password and "$" not in password else "atakatak"
 if not secrets.get("board_token"):
     secrets["board_token"] = tokens.token_urlsafe(32)   # for the CloudTAK relay and WebTAK bundle
+if not secrets.get("manage_token"):
+    secrets["manage_token"] = tokens.token_urlsafe(32)  # CloudTAK's server half only (create/end events)
 for name, value, mode in (("config.json", config, 0o640), ("secrets.json", secrets, 0o600)):
     path = os.path.join(data, name)
     fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
@@ -208,17 +233,54 @@ fi
 if [ "$HOOK_MODE" = "append" ]; then
     install_append_hook "$CONSOLE_DIR" && log "Console hook block added to $CONSOLE_DIR/app.py"
 fi
+
+# --- 5b. CrowdCAD itself (--with-crowdcad, or kept running from an earlier install) -------------
+APP_JSON="$CROWDCAD_HOME/crowdcad/app.json"
+app_field() { python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get(sys.argv[2],''))" "$APP_JSON" "$1" 2>/dev/null; }
+APP_HOST=""; APP_WEB=""; APP_PB=""
+if [ "$WITH_CROWDCAD" -eq 1 ]; then
+    # Re-runs keep what the first install chose unless an option says otherwise.
+    [ -z "$CROWDCAD_DOMAIN" ] && [ -f "$APP_JSON" ] && CROWDCAD_DOMAIN="$(app_field host)"
+    [ -z "$CROWDCAD_REF" ] && [ -f "$APP_JSON" ] && CROWDCAD_REF="$(app_field ref)"
+    [ -z "$CROWDCAD_SIGNUP" ] && [ -f "$APP_JSON" ] && CROWDCAD_SIGNUP="$(app_field signup)"
+    APP_HOST="$(python3 "$CROWDCAD_HOME/bin/crowdcad_caddy.py" app-host --console-dir "$CONSOLE_DIR" \
+        ${CROWDCAD_DOMAIN:+--app-domain "$CROWDCAD_DOMAIN"} || true)"
+    if [ -z "$APP_HOST" ]; then
+        warn "No infra-TAK FQDN for CrowdCAD's host — pass --crowdcad-domain. CrowdCAD not installed."
+    else
+        log "CrowdCAD app: https://$APP_HOST"
+        app_rc=0
+        app_out="$(python3 "$CROWDCAD_HOME/bin/crowdcad_app.py" --home "$CROWDCAD_HOME" install --host "$APP_HOST" \
+            --data "$CROWDCAD_HOME/data" ${CROWDCAD_REF:+--ref "$CROWDCAD_REF"} \
+            ${CROWDCAD_ADMIN:+--admin-email "$CROWDCAD_ADMIN"} ${CROWDCAD_SIGNUP:+--signup "$CROWDCAD_SIGNUP"} \
+            $([ "$CROWDCAD_REBUILD" -eq 1 ] && echo --rebuild))" || app_rc=$?
+        printf '%s\n' "$app_out" | grep -v '^BRIDGE_CHANGED$' || true
+        if [ "$app_rc" -ne 0 ]; then
+            warn "CrowdCAD app not (fully) installed — see above. Re-run to retry; its data is kept."
+        elif printf '%s\n' "$app_out" | grep -q '^BRIDGE_CHANGED$'; then
+            systemctl restart crowdcad-tak.service
+        fi
+    fi
+fi
+if [ -f "$APP_JSON" ]; then
+    APP_HOST="$(app_field host)"; APP_WEB="127.0.0.1:$(app_field web_port)"; APP_PB="127.0.0.1:$(app_field pb_port)"
+fi
+
 cat > "$CROWDCAD_HOME/bin/crowdcad.env" <<EOF
 # Written by install.sh; read by heal.sh and uninstall.sh.
 CONSOLE_DIR="$CONSOLE_DIR"
 HOOK_MODE="$HOOK_MODE"
 CROWDCAD_DOMAIN="$DOMAIN"
 DO_CADDY="$DO_CADDY"
+APP_HOST="$APP_HOST"
+APP_WEB="$APP_WEB"
+APP_PB="$APP_PB"
 EOF
 
 # --- 6. Caddy: the board API for the web clients -------------------------------------------------
 if [ "$DO_CADDY" -eq 1 ]; then
     python3 "$CROWDCAD_HOME/bin/crowdcad_caddy.py" ensure --reload --console-dir "$CONSOLE_DIR" ${DOMAIN:+--domain "$DOMAIN"} \
+        ${APP_HOST:+--app-host "$APP_HOST" --app-web "$APP_WEB" --app-pocketbase "$APP_PB"} \
         || warn "Caddy not updated (see above). ATAK is unaffected; the web clients can't reach the board."
     chown crowdcad-tak:crowdcad-tak "$CROWDCAD_HOME/data/config.json" 2>/dev/null || true
     systemctl restart crowdcad-tak.service   # pick up the cors_origins crowdcad_caddy.py seeded
@@ -231,6 +293,7 @@ if [ -n "$CONSOLE_DIR" ] || [ "$DO_CADDY" -eq 1 ]; then
 fi
 PUBLIC_URL="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('public_url',''))" "$CROWDCAD_HOME/data/config.json" 2>/dev/null || true)"
 BOARD_TOKEN="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('board_token',''))" "$CROWDCAD_HOME/data/secrets.json")"
+MANAGE_TOKEN="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('manage_token',''))" "$CROWDCAD_HOME/data/secrets.json")"
 
 # --- 7. Web clients ------------------------------------------------------------------------------
 if { [ -n "$CLOUDTAK" ] || [ -n "$WEBTAK" ]; } && [ -z "$PUBLIC_URL" ]; then
@@ -240,7 +303,7 @@ if { [ -n "$CLOUDTAK" ] || [ -n "$WEBTAK" ]; } && [ -z "$PUBLIC_URL" ]; then
     CLOUDTAK=""; WEBTAK=""
 fi
 if [ -n "$CLOUDTAK" ]; then
-    CROWDCAD_TAK_URL="$PUBLIC_URL" CROWDCAD_TAK_TOKEN="$BOARD_TOKEN" \
+    CROWDCAD_TAK_URL="$PUBLIC_URL" CROWDCAD_TAK_TOKEN="$BOARD_TOKEN" CROWDCAD_TAK_MANAGE_TOKEN="$MANAGE_TOKEN" \
         bash "$SRC/cloudtak/install.sh" $([ "$CLOUDTAK" != "auto" ] && echo "$CLOUDTAK") \
         || warn "CloudTAK plugin not installed (see above)."
 fi
@@ -254,7 +317,10 @@ fi
 echo
 echo "✓ CrowdCAD for TAK $VERSION installed."
 echo "  Bridge:   systemctl status crowdcad-tak   (logs: journalctl -u crowdcad-tak -f)"
-if [ "$HOOK_MODE" != "none" ]; then
+if [ -n "$APP_HOST" ]; then
+    echo "  CrowdCAD: https://$APP_HOST — sign-in details in $CROWDCAD_HOME/crowdcad/credentials.json (root only)"
+    echo "            more accounts: sudo python3 $CROWDCAD_HOME/bin/crowdcad_app.py add-user EMAIL [--admin]"
+elif [ "$HOOK_MODE" != "none" ]; then
     echo "  Next:     infra-TAK console → CrowdCAD → enter the CrowdCAD URL and bridge account"
 else
     echo "  Next:     edit $CROWDCAD_HOME/data/config.json + secrets.json, then systemctl restart crowdcad-tak"

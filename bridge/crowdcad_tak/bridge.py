@@ -80,8 +80,11 @@ class Publisher:
                     count += self._close(entry, now)
             self.events[eid] = {
                 "name": record.get("name") or eid, "ended": bool(record.get("ended")),
+                "owner": record.get("userId"),   # the bridge's own events can be ended from TAK
+                "date": record.get("date"),        # tells two same-named events apart in the web pickers
                 "unplaced": [vars(u) for u in unplaced],
                 "device_teams": mapping.device_teams(record, self.config),
+                "free_units": mapping.free_units(record, self.config),   # claimable by an ATAK callsign
                 "counts": {kind: sum(1 for e in self.sent.values()
                                      if e["event"] == eid and not e["done"] and e["item"].kind == kind)
                            for kind in ("incident", "unit", "zone", "post")},

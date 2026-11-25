@@ -13,19 +13,20 @@ import vm from 'node:vm';
 
 import { age, bridgeWarning, escapeHtml, pickEvent } from '../plugin/src/format.js';
 import { renderEvent } from '../plugin/src/ui.js';
+import { safeDispatchUrl } from '../plugin/src/dispatch-window.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..', '..');
 const python = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
 
-function bridgeBoard() {
+function bridgeBoard(extra = '') {
     const script = [
         'import json, sys',
         'sys.path.insert(0, "bridge"); sys.path.insert(0, "bridge/tests")',
         'from crowdcad_tak import board, config',
         'from crowdcad_tak.bridge import Publisher',
         'from test_mapping import demo',
-        'p = Publisher({**config.DEFAULTS, "team_uids": {"Team 2": "ANDROID-t2"}}, lambda x: None, lambda: 1794701000000)',
+        `p = Publisher({**config.DEFAULTS, "team_uids": {"Team 2": "ANDROID-t2"}${extra}}, lambda x: None, lambda: 1794701000000)`,
         'p.apply(demo())',
         'print(json.dumps(board.build(p, 1794701000000, {"crowdcad": "live", "tak": True})))',
     ].join('\n');
@@ -36,14 +37,34 @@ test('renders the board the Python bridge produces', () => {
     const board = bridgeBoard();
     const event = pickEvent(board, 'nope');
     const html = renderEvent(event, 1794701000000 + 5 * 60000);
-    assert.match(html, /Demo Football Game · 2 open calls/);
+    assert.match(html, /Demo Football Game · 3 open calls/);       // incl. the unplaced one
     assert.match(html, /<b>CC-007<\/b> Chest pain/);
     assert.match(html, /wcad-p1/);                                // priority 1 flagged
     assert.match(html, /Sec 104 · 8m · Team 1/);                  // created 1794700800000 = 500 s earlier
     assert.match(html, /no unit/);                                // CC-008 unassigned
-    assert.match(html, /Team 2 <span class="wcad-dim">\(device\)/);
-    assert.match(html, /Not on the map/);
+    assert.match(html, /Team 2<\/div>[\s\S]*?📡 no reports/);       // device unit, never heard
+    assert.match(html, /not on map/);                              // unplaced call CC-009 listed with a chip
+    assert.match(html, /<b>CC-009<\/b>/);
+    assert.match(html, /not on the map: their location/);
     assert.doesNotMatch(html, /John|Smith|Alex Doe|Pat Quinn/);
+    assert.doesNotMatch(html, /data-dispatch/);                   // no CrowdCAD app URL → no Dispatch button
+});
+
+test('Dispatch button opens the event in CrowdCAD when the bridge knows the app', () => {
+    const board = bridgeBoard(', "crowdcad_app_url": "https://crowdcad.example.org"');
+    const event = pickEvent(board, '');
+    const html = renderEvent(event, 1794701000000);
+    assert.match(html, new RegExp(`data-dispatch="https://crowdcad.example.org/events/${event.id}/dispatch"`));
+    assert.match(html, /data-name="Demo Football Game"/);
+});
+
+test('only https URLs are ever framed', () => {
+    assert.equal(safeDispatchUrl('https://crowdcad.example.org/events/a/dispatch'), 'https://crowdcad.example.org/events/a/dispatch');
+    for (const bad of ['javascript:alert(1)', 'http://crowdcad.example.org', 'https://x" onload="alert(1)', null, undefined, 42]) {
+        assert.equal(safeDispatchUrl(bad), null, String(bad));
+    }
+    const html = renderEvent({ name: 'E', calls: [], units: [], unplaced: [], dispatchUrl: 'javascript:alert(1)' }, 0);
+    assert.doesNotMatch(html, /data-dispatch/);
 });
 
 test('CrowdCAD text is escaped', () => {

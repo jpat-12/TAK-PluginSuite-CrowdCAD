@@ -199,5 +199,14 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual(config.load(d)[1]["crowdcad_password"], "pw")
 
 
+class FreeUnitsTest(unittest.TestCase):
+    def test_free_units_and_callsign_key(self):
+        names = mapping.free_units(demo(), {**config.DEFAULTS, "team_uids": {"Team 1": "ANDROID-abc"}})
+        self.assertNotIn("Team 1", names)
+        self.assertIn("Team 2", names)
+        self.assertEqual({mapping.callsign_key(n) for n in ("Team 1", "TEAM-1", "team1")}, {"team1"})
+
+
 if __name__ == "__main__":
     unittest.main()
+

@@ -1,5 +1,6 @@
-"""Minimal PocketBase client for CrowdCAD's `events` collection: password auth, list/view, and
-the realtime (SSE) stream. Stdlib only. Interface reference: CrowdCAD docs/ICD.md (v1.6.0)."""
+"""Minimal PocketBase client for CrowdCAD's `events` collection: password auth, list/view, the
+realtime (SSE) stream, and the few writes the manage API makes (manage.py: list venues, create
+an event, end an event the bridge created). Stdlib only. Interface reference: CrowdCAD docs/ICD.md (v1.6.0)."""
 
 import json
 import re
@@ -52,6 +53,7 @@ class PocketBase:
         self.timeout = timeout
         self._urlopen = urlopen
         self.token, self.token_at = None, 0.0
+        self.user_id = None   # the bridge account's own record id, set at sign-in
         if not self.base.startswith(("http://", "https://")):
             raise PocketBaseError(f"crowdcad_url must be http(s)://…, got {base_url!r}")
 
@@ -96,6 +98,7 @@ class PocketBase:
         result = self._call("POST", "/api/collections/users/auth-with-password",
                             body={"identity": self.identity, "password": self.password}, auth=False)
         self.token, self.token_at = result.get("token"), time.time()
+        self.user_id = (result.get("record") or {}).get("id") or self.user_id
         if not self.token:
             raise PocketBaseError("auth-with-password returned no token")
         return self.token
@@ -117,6 +120,44 @@ class PocketBase:
             if page >= int(result.get("totalPages") or 1):
                 return records
             page += 1
+
+    def list_venues(self):
+        """Every venue this account can see (CrowdCAD: any signed-in user can list venues)."""
+        records, page = [], 1
+        while True:
+            result = self._authed("GET", "/api/collections/venues/records",
+                                  query={"page": page, "perPage": 100, "sort": "name"})
+            records.extend(result.get("items") or [])
+            if page >= int(result.get("totalPages") or 1):
+                return records
+            page += 1
+
+    def get_record(self, collection, record_id):
+        if not RECORD_ID.match(record_id or ""):
+            raise PocketBaseError(f"not a record id: {record_id!r}", 404)
+        return self._authed("GET", f"/api/collections/{collection}/records/{record_id}")
+
+    def create_event(self, record):
+        return self._authed("POST", "/api/collections/events/records", body=record)
+
+    def update_event(self, record_id, patch):
+        if not RECORD_ID.match(record_id or ""):
+            raise PocketBaseError(f"not a record id: {record_id!r}", 404)
+        return self._authed("PATCH", f"/api/collections/events/records/{record_id}", body=patch)
+
+    def hook_available(self):
+        """The compare-and-swap hook (infratak/pb_hooks/crowdcad_tak.pb.js) is installed."""
+        try:
+            return bool(self._call("GET", "/api/crowdcad-tak/ping", auth=False).get("ok"))
+        except PocketBaseError:
+            return False
+
+    def apply_cas(self, record_id, patch, expect):
+        """Write `patch` only if the record's `expect` fields are still exactly those values.
+        Raises PocketBaseError(status=409) when they changed (or the event ended)."""
+        if not RECORD_ID.match(record_id or ""):
+            raise PocketBaseError(f"not a record id: {record_id!r}", 404)
+        return self._authed("POST", f"/api/crowdcad-tak/events/{record_id}/apply", body={**patch, "_expect": expect})
 
     # --- realtime -------------------------------------------------------------------------
 

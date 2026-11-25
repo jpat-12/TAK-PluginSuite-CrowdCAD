@@ -211,6 +211,8 @@ def _settings_html(cfg, secrets, saved):
 <form method="post" action="/crowdcad/settings">
 <label>CrowdCAD PocketBase URL (what CrowdCAD's NEXT_PUBLIC_POCKETBASE_URL points at)</label>
 <input type="text" name="crowdcad_url" value="{E(cfg.get('crowdcad_url') or '')}" placeholder="https://crowdcad.example.org or http://127.0.0.1:8090">
+<label>CrowdCAD app URL — the site dispatchers sign in to; enables the Dispatch button in CloudTAK and WebTAK</label>
+<input type="text" name="crowdcad_app_url" value="{E(cfg.get('crowdcad_app_url') or '')}" placeholder="https://crowdcad.example.org">
 <label>Bridge account (a CrowdCAD user; read-only use)</label>
 <input type="text" name="crowdcad_identity" value="{E(cfg.get('crowdcad_identity') or '')}" placeholder="tak-bridge@example.org">
 <label>Password {'(set — leave blank to keep)' if secrets.get('crowdcad_password') else ''}</label>
@@ -249,6 +251,10 @@ def _parse_settings(form, cfg, secrets):
     if url and not url.startswith(("http://", "https://")):
         return None, None, "CrowdCAD URL must start with http:// or https://"
     cfg["crowdcad_url"] = url
+    app_url = form.get("crowdcad_app_url", "").strip().rstrip("/")
+    if app_url and not app_url.startswith("https://"):
+        return None, None, "CrowdCAD app URL must start with https:// (WebTAK and CloudTAK pages are HTTPS)"
+    cfg["crowdcad_app_url"] = app_url
     cfg["crowdcad_identity"] = form.get("crowdcad_identity", "").strip()
     events = form.get("events", "").strip() or "active"
     cfg["events"] = "active" if events == "active" else [e.strip() for e in events.split(",") if e.strip()]
