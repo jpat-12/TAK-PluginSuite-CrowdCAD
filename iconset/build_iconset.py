@@ -32,7 +32,7 @@ PNG_DIR = ROOT / "iconset" / "png"   # the same 32px PNGs, for CloudTAK/WebTAK o
 
 NAME = "CrowdCAD"
 GROUP = "CrowdCAD"
-VERSION = 2   # 2: + EMS P1/P2/P3 (the generic EMS icon tinted by call priority)
+VERSION = 3   # 2: + EMS P1/P2/P3 (calls by priority); 3: + EMS ALS/BLS/SUP AVL/OOS/BUSY (unit status)
 SIZE = 32
 # Fixed forever (see docstring). sha256("crowdcad-tak/iconset") so it looks like other TAK UIDs.
 UID = hashlib.sha256(b"crowdcad-tak/iconset").hexdigest()
@@ -50,6 +50,12 @@ ICONS = [
 # (model/Priority.java): the bridge names these in each call's <usericon> (cot.py), so every TAK
 # client with this iconset — ATAK, WinTAK, CloudTAK — shows the same marker.
 PRIORITY_ICONS = [("EMS P1.png", (0xE0, 0x31, 0x31)), ("EMS P2.png", (0xF7, 0x67, 0x07)), ("EMS P3.png", (0xFC, 0xC4, 0x19))]
+
+
+# Unit icons: a phone's designation (ALS/BLS/SUP, set in the ATAK plugin's Settings) × its dispatch
+# status from the bridge's roster. The ATAK plugin names these on the phone's own position report.
+UNIT_STATUS_TINTS = [("AVL", (0x43, 0xA0, 0x47)), ("OOS", (0x9E, 0x9E, 0x9E)), ("BUSY", (0xEF, 0x9A, 0x9A))]
+UNIT_SOURCES = {"EMS ALS.png": "ALS", "EMS BLS.png": "BLS", "EMS SUP.png": "SUP"}
 
 
 def tinted(img: Image.Image, rgb) -> Image.Image:
@@ -87,6 +93,11 @@ def main() -> None:
         buf = io.BytesIO()
         img.save(buf, "PNG", optimize=True)
         pngs[filename] = buf.getvalue()
+        if filename in UNIT_SOURCES:
+            for code, rgb in UNIT_STATUS_TINTS:
+                tbuf = io.BytesIO()
+                tinted(img, rgb).save(tbuf, "PNG", optimize=True)
+                pngs[f"EMS {UNIT_SOURCES[filename]} {code}.png"] = tbuf.getvalue()
         if filename == "EMS.png":
             for name, rgb in PRIORITY_ICONS:
                 tbuf = io.BytesIO()

@@ -11,10 +11,29 @@
 
 import { std } from '../../../src/std.ts';
 import { store } from './store.ts';
-import { clearLines, drawLines } from './lines.ts';
-import type { Board } from './core.ts';
+import { clearLines, drawBoundaries, drawHistory, drawLines } from './lines.ts';
+import type { Board, UnitStatusCode } from './core.ts';
 
 const POLL_MS = 3_000;
+const DISPATCHER_KEY = 'crowdcad-dispatch:dispatcher';
+const SATELLITE_KEY = 'crowdcad-dispatch:satellite';
+let firstBoard = true;      // acknowledgements already on the board when the panel opens are not bannered
+
+try {
+    store.dispatcher = localStorage.getItem(DISPATCHER_KEY) || '';
+    store.satellite = localStorage.getItem(SATELLITE_KEY) === '1';
+} catch { /* storage blocked */ }
+
+export function setSatellite(on: boolean): void {
+    store.satellite = on;
+    try { localStorage.setItem(SATELLITE_KEY, on ? '1' : '0'); } catch { /* storage blocked */ }
+}
+
+/** This dispatcher's name ("Dispatcher1"): sent with every action, so CrowdCAD's logs say who. */
+export function setDispatcher(name: string): void {
+    store.dispatcher = name.slice(0, 40);
+    try { localStorage.setItem(DISPATCHER_KEY, store.dispatcher); } catch { /* storage blocked: lasts until reload */ }
+}
 const BASE = '/api/plugin-crowdcad';
 
 function message(e: unknown): string {
@@ -26,7 +45,19 @@ export async function refresh(): Promise<void> {
         const b = await std(BASE + '/dispatcher/board') as Board;
         store.incidents.splice(0, store.incidents.length, ...b.incidents);
         store.units.splice(0, store.units.length, ...b.units);
+        store.history.splice(0, store.history.length, ...(b.history ?? []));
+        for (const a of b.acks ?? []) {
+            const key = a.unit + '|' + a.incident + '|' + a.at;
+            if (store.seenAcks[key]) continue;
+            store.seenAcks[key] = true;
+            if (!firstBoard) store.newAcks.push(a);
+        }
+        firstBoard = false;
+        store.boundaries.splice(0, store.boundaries.length, ...(b.boundaries ?? []));
+        store.supRequests.splice(0, store.supRequests.length, ...(b.supRequests ?? []));
+        drawBoundaries(store.boundaries);
         drawLines(store.incidents, store.units);
+        drawHistory(store.showHistory ? store.history : []);
         store.skewMs = b.now - Date.now();
         store.conn = { ok: true, error: '', at: Date.now() };
     } catch (e) {
@@ -42,21 +73,28 @@ export type Action =
         notes: string; reportedBy: string; lat: number; lon: number; w3w: string } }
     | { action: 'add_unit'; unit: { name: string; kind: 'team' | 'supervisor'; cert?: string; takUid?: string } }
     | { action: 'remove_unit'; unitUid: string }
-    | { action: 'unit_status'; id: string; unitUid: string; status: 'AVL' | 'RESP' | 'ONSC' | 'TRAN' | 'OOS' };
+    | { action: 'unit_status'; id: string; unitUid: string; status: UnitStatusCode }
+    | { action: 'unit_set'; unitUid: string; status: UnitStatusCode }
+    | { action: 'notes'; id: string; notes: string }
+    | { action: 'boundaries'; boundaries: [number, number][][] }
+    | { action: 'clear_supreq'; id: string };
 
 /** Send one action; the bridge writes it to CrowdCAD and re-sends the call as CoT. Throws with its message. */
 export async function act(a: Action): Promise<string> {
-    const r = await std(BASE + '/dispatcher/action', { method: 'POST', body: a }) as { id: string };
+    const r = await std(BASE + '/dispatcher/action', { method: 'POST', body: { ...a, dispatcher: store.dispatcher } }) as { id: string };
     await refresh();
     return r.id;
 }
 
-export interface TakContact { uid: string; callsign: string }
+export interface TakContact { uid: string; callsign: string; takv?: string }
 
 /** The signed-in user's TAK contacts (CloudTAK's own route): a new unit can be carried by one. */
 export async function contacts(): Promise<TakContact[]> {
     const list = await std('/api/marti/api/contacts/all') as TakContact[];
-    return list.filter(c => c.uid && c.callsign).sort((a, b) => a.callsign.localeCompare(b.callsign));
+    // TAK Server lists every device that ever connected; one entry per uid.
+    const byUid = new Map<string, TakContact>();
+    for (const c of list) if (c.uid && c.callsign) byUid.set(c.uid, c);
+    return [...byUid.values()].sort((a, b) => a.callsign.localeCompare(b.callsign));
 }
 
 export interface W3w { words: string; lat: number; lon: number; nearestPlace: string }

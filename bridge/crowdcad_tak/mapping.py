@@ -238,7 +238,7 @@ def build(event, config, details=None):
             times = _log_times(call.get("log"))
             board = {"callId": call.get("id"), "number": call.get("order"), "floor": floor,
                      "crowdcadStatus": call.get("status") or "",
-                     "w3w": extra.get("w3w"), "description": extra.get("description"),
+                     "w3w": extra.get("w3w"), "description": extra.get("description"), "takNotes": extra.get("notes"),
                      "callLocation": call.get("location") or ""}
             if not where:
                 if not closed:
@@ -264,6 +264,8 @@ def build(event, config, details=None):
                 fields["floor"] = floor
             if extra.get("w3w"):
                 fields["w3w"] = extra["w3w"]
+            if extra.get("notes"):
+                fields["notes"] = extra["notes"]   # dispatcher's TAK notes, never CrowdCAD's notes
             uid = f"{prefix}-call-{slug(call.get('id') or iid)}"
             items[uid] = Item(uid, "incident", where[0], where[1], fields, closed=closed,
                               created_ms=min(times) if times else None,

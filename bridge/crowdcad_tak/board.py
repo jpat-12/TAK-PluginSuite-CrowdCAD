@@ -21,15 +21,17 @@ def _call_extras(d):
     and the TAK details (calldetails.py). Never notes: those stay in CrowdCAD."""
     return {"callId": d.get("callId"), "number": d.get("number"), "floor": d.get("floor"),
             "crowdcadStatus": d.get("crowdcadStatus"),
-            "w3w": d.get("w3w"), "description": d.get("description"), "callLocation": d.get("callLocation")}
+            "w3w": d.get("w3w"), "description": d.get("description"), "takNotes": d.get("takNotes"),
+            "callLocation": d.get("callLocation")}
 
 
-def build(publisher, now_ms, bridge_status=None, own_user=None, heard=None, positions=None):
+def build(publisher, now_ms, bridge_status=None, own_user=None, heard=None, positions=None, designations=None):
     """own_user: the bridge account's CrowdCAD id; its events (created from TAK) are `endable`.
     heard: device uid → ms the bridge last received anything from it (fieldstatus.FieldStatus).
     positions: device uid → (lat, lon) of its last position report (fieldstatus.FieldStatus)."""
     heard = heard or {}
     positions = positions or {}
+    designations = designations or {}
     with publisher.lock:
         live = [(uid, e) for uid, e in publisher.sent.items() if not e["done"]]
         callsigns = {uid: e["item"].fields.get("callsign") for uid, e in live if e["item"].kind == "unit"}
@@ -70,6 +72,7 @@ def build(publisher, now_ms, bridge_status=None, own_user=None, heard=None, posi
                 units.append({"uid": device_uid, "placed": bool(fix), "lastHeard": heard.get(device_uid), "callsign": team["name"],
                               "status": team["status"], "incident": team["incident"], "location": team["location"],
                               "supervisor": team["supervisor"], "device": True, "crowdcadStatus": team.get("crowdcadStatus"),
+                              "designation": designations.get(device_uid),
                               "lat": fix[0] if fix else None, "lon": fix[1] if fix else None,
                               "since": team["since"]})
             # Open calls and teams CrowdCAD can't place still belong on the board: listed with
@@ -92,7 +95,15 @@ def build(publisher, now_ms, bridge_status=None, own_user=None, heard=None, posi
                                   "lat": None, "lon": None, "since": d.get("since")})
             calls.sort(key=lambda c: (c["priority"], STATUS_ORDER.get(c["status"], 9), c["created"] or 0))
             units.sort(key=lambda u: (u["supervisor"], u["callsign"] or ""))
+            # History: this event's calls that were closed or cancelled (only what TAK was told).
+            history = [{"uid": uid, "id": e["item"].fields["id"], "status": e["item"].fields.get("status"),
+                        "type": e["item"].fields.get("type"), "priority": e["item"].fields.get("priority"),
+                        "location": e["item"].fields.get("location"), "lat": e["item"].lat, "lon": e["item"].lon,
+                        "created": e["created"], "updated": e["updated"]}
+                       for uid, e in publisher.sent.items()
+                       if e["event"] == eid and e["done"] and e["item"].kind == "incident"]
             events.append({"id": eid, "name": info["name"], "date": info.get("date"), "calls": calls, "units": units,
+                           "history": history,
                            "idPrefix": mapping._id_prefix({"id": eid}, publisher.config),   # "CC" in CC-007
                            "unplaced": info["unplaced"],
                            "endable": bool(own_user) and info.get("owner") == own_user,

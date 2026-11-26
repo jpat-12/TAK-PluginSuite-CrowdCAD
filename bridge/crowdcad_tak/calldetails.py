@@ -27,6 +27,8 @@ import threading
 from .dispatch import DispatchError, _find_call, _is_resolved, _replace, _text, _via
 
 TAG = "[TAK]"
+NOTE_TAG = "[TAK note]"   # dispatcher notes: sent to TAK (IU `notes`), so no names, DOB or MRN
+MAX_NOTES = 240
 SOURCES = ("map", "w3w", "coords", "centre", "post")
 SOURCE_LABEL = {"map": "picked on map", "w3w": "from what3words", "coords": "typed coordinates",
                 "centre": "map centre (estimate)", "post": "at post"}
@@ -100,6 +102,7 @@ def clean(form):
     return {
         "post": post,                       # a CrowdCAD post name: becomes the call's location as-is
         "description": _text(form.get("description"), "description") or None,
+        "notes": _text(form.get("notes"), "notes", limit=MAX_NOTES) or None,
         "floor": _floor(form.get("floor")),
         "lat": lat, "lon": lon,
         "source": source if lat is not None else ("post" if post else None),
@@ -122,13 +125,15 @@ def block(details):
     return f"{TAG} {' · '.join(parts)}" if parts else ""
 
 
-def notes_with(notes, line):
-    """`notes` with its [TAK] line replaced by `line` (dropped when empty). Other lines untouched.
-    Only ever used to build the write: the result goes back into CrowdCAD, nowhere else."""
-    kept = [n for n in (notes or "").split("\n") if not n.startswith(TAG + " ") and n != TAG]
+def notes_with(notes, line, note_line=""):
+    """`notes` with the bridge's lines ([TAK] details, [TAK note]) replaced (dropped when empty).
+    Other lines untouched. Only ever used to build the write: the result goes back into CrowdCAD,
+    nowhere else."""
+    ours = (TAG + " ", NOTE_TAG + " ")
+    kept = [n for n in (notes or "").split("\n") if not n.startswith(ours) and n not in (TAG, NOTE_TAG)]
     while kept and not kept[-1].strip():
         kept.pop()
-    return "\n".join(kept + ([line] if line else []))
+    return "\n".join(kept + [x for x in (line, note_line) if x])
 
 
 def apply(event, call_id, details, actor=None, clock=None):
@@ -148,11 +153,16 @@ def apply(event, call_id, details, actor=None, clock=None):
         updated["location"] = details["description"]   # no position: the spoken spot is all there is
         changes.append(f"location {details['description']}")
     line = block(details)
-    notes = notes_with(call.get("notes"), line)
+    note_line = f"{NOTE_TAG} {details['notes']}" if details.get("notes") else ""
+    notes = notes_with(call.get("notes"), line, note_line)
     if notes != (call.get("notes") or ""):
         updated["notes"] = notes
         if line:
             changes.append(line[len(TAG) + 1:])
+        if note_line:
+            changes.append("note: " + details["notes"])
+        if not line and not note_line:
+            changes.append("TAK details cleared")       # a removal is a change too
     if not changes:
         return {}
     hhmm = clock.hhmm if clock else "0000"
@@ -184,7 +194,67 @@ class CallDetails:
 
     def for_event(self, event_id):
         with self.lock:
-            return {cid: dict(d) for cid, d in (self.data.get(event_id) or {}).items()}
+            calls = self.data.get(event_id)
+            return {cid: dict(d) for cid, d in calls.items()} if isinstance(calls, dict) else {}
+
+    # Acknowledgements: "_acks" → event id → incident id (CC-007) → unit name → ms. Kept here so
+    # a unit stays Responding (not Tasked) across a bridge restart. Never an event id: "_" prefix.
+    def put_ack(self, event_id, incident_id, unit_name, at_ms):
+        with self.lock:
+            data = {eid: dict(v) if isinstance(v, dict) else list(v) for eid, v in self.data.items()}
+            acks = {e: {i: dict(u) for i, u in calls.items()} for e, calls in (data.get("_acks") or {}).items()}
+            acks.setdefault(event_id, {}).setdefault(incident_id, {})[unit_name] = int(at_ms)
+            data["_acks"] = acks
+            self._save(data)
+            self.data = data
+
+    # Venue boundaries a dispatcher drew (CloudTAK radar + map): "_venue" → event id → list of
+    # polygons [[lat, lon], ...]. Shared by every dispatcher of the event.
+    def boundaries(self, event_id):
+        with self.lock:
+            return [list(map(list, poly)) for poly in ((self.data.get("_venue") or {}).get(event_id) or [])]
+
+    def put_boundaries(self, event_id, polygons):
+        with self.lock:
+            data = {eid: dict(v) if isinstance(v, dict) else list(v) for eid, v in self.data.items()}
+            venue = dict(data.get("_venue") or {})
+            if polygons:
+                venue[event_id] = polygons
+            else:
+                venue.pop(event_id, None)
+            data["_venue"] = venue
+            self._save(data)
+            self.data = data
+
+    # Supervisor requests: "_supreq" → list of {id, event, unit, callsign, uid, at, lat, lon, cleared}
+    # (newest last, the last 50 kept). Cleared by a dispatcher.
+    def add_supreq(self, request):
+        with self.lock:
+            data = {eid: dict(v) if isinstance(v, dict) else v for eid, v in self.data.items()}
+            reqs = [dict(r) for r in (data.get("_supreq") or [])] + [request]
+            data["_supreq"] = reqs[-50:]
+            self._save(data)
+            self.data = data
+
+    def supreqs(self):
+        with self.lock:
+            return [dict(r) for r in (self.data.get("_supreq") or [])]
+
+    def clear_supreq(self, request_id):
+        with self.lock:
+            data = {eid: dict(v) if isinstance(v, dict) else v for eid, v in self.data.items()}
+            reqs = [dict(r, cleared=True) if r.get("id") == request_id else dict(r) for r in (data.get("_supreq") or [])]
+            data["_supreq"] = reqs
+            self._save(data)
+            self.data = data
+
+    def acks(self, event_id=None):
+        """event id → {incident id → {unit name → ms}}, or one event's {incident id → …}."""
+        with self.lock:
+            all_acks = self.data.get("_acks") or {}
+            if event_id is not None:
+                return {i: dict(u) for i, u in (all_acks.get(event_id) or {}).items()}
+            return {e: {i: dict(u) for i, u in calls.items()} for e, calls in all_acks.items()}
 
     def get(self, event_id, call_id):
         with self.lock:
@@ -206,7 +276,7 @@ class CallDetails:
             self._commit(event_id, call_id, previous or None)
 
     def _commit(self, event_id, call_id, value):
-        data = {eid: dict(calls) for eid, calls in self.data.items()}
+        data = {eid: dict(calls) if isinstance(calls, dict) else list(calls) for eid, calls in self.data.items()}
         calls = data.setdefault(event_id, {})
         if value:
             calls[call_id] = value

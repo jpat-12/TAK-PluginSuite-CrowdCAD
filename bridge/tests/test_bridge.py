@@ -157,6 +157,19 @@ class PublisherTest(unittest.TestCase):
         pub.heartbeat()
         self.assertNotIn(C1, [ET.fromstring(m).get("uid") for m in sent[len(uids):]])   # never re-sent
 
+    def test_roster_tells_phones_their_status(self):
+        pub, sent, clock = publisher(team_uids={"Team 3": "ANDROID-t3"})
+        pub.apply(demo())
+        roster = [ET.fromstring(m) for m in sent if ET.fromstring(m).get("type") == "t-x-crowdcad-roster"]
+        self.assertEqual(len(roster), 1)
+        units = {u.get("uid"): (u.get("status"), u.get("name")) for u in roster[0].iter("unit")}
+        self.assertEqual(units, {"ANDROID-t3": ("RESP", "Team 3")})
+        sent.clear()
+        pub.apply(demo())                                          # unchanged: not re-sent
+        self.assertFalse(any("roster" in m for m in sent))
+        pub.heartbeat()                                            # but refreshed with the heartbeat
+        self.assertTrue(any("t-x-crowdcad-roster" in m for m in sent))
+
     def test_delete_can_be_switched_off(self):
         pub, sent, clock = publisher(delete_closed=False)
         pub.apply(demo())

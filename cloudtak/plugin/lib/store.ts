@@ -1,5 +1,5 @@
 import { reactive } from 'vue';
-import type { Incident, Unit } from './core.ts';
+import type { Ack, HistoryCall, Incident, SupRequest, Unit } from './core.ts';
 
 export interface NewIncidentForm {
     type: string;
@@ -22,9 +22,17 @@ interface CadState {
     units: Unit[];
     skewMs: number;              // bridge clock - browser clock, for ages
     conn: { ok: boolean; error: string; at: number };
-    view: { screen: 'board' | 'incident' | 'new' | 'add-unit'; incidentId: string | null; filter: string | null };
+    view: { screen: 'board' | 'incident' | 'new' | 'add-unit' | 'settings'; incidentId: string | null; filter: string | null };
     form: NewIncidentForm | null;
     w3wCache: Record<string, string>;   // incident id -> words, looked up once
+    history: HistoryCall[];      // the live event's closed calls (shown faded when showHistory)
+    showHistory: boolean;
+    dispatcher: string;          // this dispatcher's name, logged with every change (per browser)
+    seenAcks: Record<string, true>;   // acknowledgements already bannered: "unit|incident|at"
+    newAcks: Ack[];              // not bannered yet (App.vue shows and clears them)
+    boundaries: [number, number][][];   // venue outlines a dispatcher drew ([lat, lon] corners), shared via the bridge
+    satellite: boolean;          // draw CloudTAK's basemap under the radar (per browser)
+    supRequests: SupRequest[];   // open Request Supervisor alerts (red banner until cleared)
 }
 
 export const store = reactive<CadState>({
@@ -35,4 +43,12 @@ export const store = reactive<CadState>({
     view: { screen: 'board', incidentId: null, filter: null },
     form: null,
     w3wCache: {},
+    history: [],
+    showHistory: false,
+    dispatcher: '',
+    seenAcks: {},
+    newAcks: [],
+    boundaries: [],
+    satellite: false,
+    supRequests: [],
 });

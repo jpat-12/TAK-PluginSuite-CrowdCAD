@@ -49,9 +49,47 @@ def _unit_uid(event_id, unit):
     return unit.get("uid") or f"{mapping.event_prefix(event_id)}-team-{mapping.slug(unit.get('callsign'))}"
 
 
-def board(board_data, now_ms):
-    """The bridge's board (board.build) → IU's dispatcher board."""
-    incidents, units = [], []
+ACK_FEED_MS = 15 * 60_000      # the dispatcher's "acknowledged" banner looks back this far
+
+
+def _designation(u):
+    """ALS / BLS / SUP column: the phone's own setting, else SUP for a supervisor, else BLS."""
+    return u.get("designation") or ("SUP" if u.get("supervisor") else "BLS")
+
+
+MAX_POLYGONS, MAX_POINTS = 20, 500
+
+
+def clean_boundaries(polygons):
+    """A dispatcher's drawn venue boundaries → [[[lat, lon], ...], ...], validated."""
+    if not isinstance(polygons, list) or len(polygons) > MAX_POLYGONS:
+        raise ManageError(f"boundaries must be a list of at most {MAX_POLYGONS} polygons")
+    out = []
+    for poly in polygons:
+        if not isinstance(poly, list) or not 3 <= len(poly) <= MAX_POINTS:
+            raise ManageError(f"each boundary needs 3 to {MAX_POINTS} points")
+        points = []
+        for pt in poly:
+            try:
+                lat, lon = float(pt[0]), float(pt[1])
+            except (TypeError, ValueError, IndexError):
+                raise ManageError("boundary points are [lat, lon]") from None
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                raise ManageError("boundary point out of range")
+            points.append([round(lat, 7), round(lon, 7)])
+        out.append(points)
+    return out
+
+
+SUPREQ_SHOW_MS = 60 * 60_000     # an uncleared supervisor request stays on the board this long
+
+
+def board(board_data, now_ms, acks=None, boundaries=None, supreqs=None):
+    """The bridge's board (board.build) → IU's dispatcher board. acks: event id → incident id →
+    unit name → ms (calldetails.CallDetails.acks): a phone-carried unit on a call shows TASK
+    (tasked, not acknowledged) until its medic acknowledges, then RESP."""
+    acks = acks or {}
+    incidents, units, history, acked = [], [], [], []
     for event in board_data.get("events") or []:
         eid = event["id"]
         uid_of = {u.get("callsign"): _unit_uid(eid, u) for u in event.get("units") or []}
@@ -65,7 +103,7 @@ def board(board_data, now_ms):
                 "priority": c.get("priority") or 2,
                 "location": c.get("location") or "", "floor": c.get("floor") or 0,
                 "eventTitle": event.get("name") or "",
-                "notes": c.get("description") or "",          # the TAK description; never CrowdCAD notes
+                "notes": c.get("takNotes") or "",                # the dispatcher's TAK notes; never CrowdCAD notes
                 "w3w": c.get("w3w") or "",
                 "lat": c["lat"] if c.get("lat") is not None else 0.0,
                 "lon": c["lon"] if c.get("lon") is not None else 0.0,
@@ -74,12 +112,29 @@ def board(board_data, now_ms):
                 "assigned": [a.get("uid") or uid_of.get(a.get("callsign")) or a.get("callsign")
                              for a in c.get("assigned") or []],
             })
+        event_acks = acks.get(eid) or {}
+        for incident_id, by_unit in event_acks.items():
+            for name, at in by_unit.items():
+                if now_ms - at <= ACK_FEED_MS:
+                    acked.append({"unit": name, "incident": incident_id, "at": at})
+        for c in event.get("history") or []:
+            history.append({"id": c["id"], "status": c.get("status") or "CLOSED", "type": c.get("type") or "Call",
+                            "priority": c.get("priority") or 2, "location": c.get("location") or "",
+                            "lat": c.get("lat") or 0.0, "lon": c.get("lon") or 0.0,
+                            "created": c.get("created") or 0, "updated": c.get("updated") or 0})
         for u in event.get("units") or []:
+            status = u.get("status") or "OOS"
+            # Assigned but not acknowledged by its phone yet: Tasked. (A unit without a phone can't
+            # acknowledge, so it shows CrowdCAD's own status.)
+            if u.get("device") and u.get("incident") and status == "RESP" \
+                    and u.get("callsign") not in (event_acks.get(u["incident"]) or {}):
+                status = "TASK"
             units.append({
                 "uid": _unit_uid(eid, u), "callsign": u.get("callsign") or "", "eventId": eid,
                 # IU's rule: never default a unit to Available. CrowdCAD statuses with no IU code
                 # (Assigned, Delivered, ...) show as out of service until CrowdCAD says more.
-                "status": u.get("status") or "OOS",
+                "status": status,
+                "designation": _designation(u),
                 "incident": u.get("incident") or "",
                 "since": u.get("since") or now_ms,
                 "lat": u["lat"] if u.get("lat") is not None else 0.0,
@@ -89,7 +144,9 @@ def board(board_data, now_ms):
                 "seen": (u.get("lastHeard") or 0) if u.get("device") else now_ms,
                 "device": bool(u.get("device")),
             })
-    return {"now": now_ms, "incidents": incidents, "units": units}
+    return {"now": now_ms, "incidents": incidents, "units": units, "history": history,
+            "acks": sorted(acked, key=lambda a: a["at"]), "boundaries": boundaries or [],
+            "supRequests": [r for r in (supreqs or []) if not r.get("cleared") and now_ms - r["at"] <= SUPREQ_SHOW_MS]}
 
 
 # --- CrowdCAD handlers IU needs that dispatch.py doesn't port yet ------------------------------
@@ -191,18 +248,35 @@ class Dispatcher:
         raise ManageError(f"no unit {uid} in {event.get('name')}", 404)
 
     def board(self, now_ms):
-        return board(self._board(), now_ms)
+        data = self._board()
+        events = data.get("events") or []
+        venue = self.manager.details.boundaries(events[0]["id"]) if events else []
+        return board(data, now_ms, self.manager.details.acks(), venue, self.manager.details.supreqs())
 
     def act(self, body, actor):
         if not isinstance(body, dict):
             raise ManageError("body must be a JSON object")
         action = body.get("action")
+        name = _text(body.get("dispatcher"), 40)
+        if name:
+            actor = f"{name} ({actor})"         # "via CloudTAK: Dispatcher1 (jon@…)"
         m, via = self.manager, f"CloudTAK: {actor}"
         if action == "create":
             return self._create(body.get("incident") or {}, actor)
         data = self._board()
         if action == "add_unit":
             return self._add_unit(data, body.get("unit") or {}, actor)
+        if action == "clear_supreq":
+            self.manager.details.clear_supreq(_text(body.get("id"), 200))
+            return {"id": ""}
+        if action == "boundaries":
+            events = data.get("events") or []
+            if not events:
+                raise ManageError("no live CrowdCAD event", 409)
+            self.manager.details.put_boundaries(events[0]["id"], clean_boundaries(body.get("boundaries") or []))
+            return {"id": ""}
+        if action == "unit_set":
+            return self._unit_set(data, body, actor)
         if action == "remove_unit":
             for event in data.get("events") or []:
                 for u in event.get("units") or []:
@@ -222,6 +296,8 @@ class Dispatcher:
         elif action == "unit_status":
             name = self._unit_name(event, body.get("unitUid"))
             status = body.get("status")
+            if status == "RESP" and self._waiting_for_ack(data, event, call, body.get("unitUid")):
+                raise ManageError(f"{name} hasn't acknowledged {call['id']} yet: Responding comes with the acknowledgement", 409)
             if status in ("RESP", "ONSC", "TRAN"):
                 m.status_on_call(eid, cid, {"unit": name, "status": ON_CALL["DISP" if status == "RESP" else status]}, actor)
             elif status in ("AVL", "OOS"):
@@ -230,6 +306,9 @@ class Dispatcher:
                     m.unit_status(eid, {"unit": name, "status": "On Break"}, actor)
             else:
                 raise ManageError("status must be AVL, RESP, ONSC, TRAN or OOS")
+        elif action == "notes":
+            notes = body.get("notes")
+            m.call_notes(eid, cid, notes if isinstance(notes, str) else "", actor)
         elif action == "status":
             status = body.get("status")
             if status in ON_CALL:
@@ -250,6 +329,34 @@ class Dispatcher:
         else:
             raise ManageError("action must be assign, unassign, unit_status, status, create, add_unit or remove_unit")
         return {"id": call["id"]}
+
+    def _waiting_for_ack(self, data, event, call, uid):
+        unit = next((u for u in event.get("units") or [] if _unit_uid(event["id"], u) == uid), None)
+        if not unit or not unit.get("device"):
+            return False
+        return unit["callsign"] not in (self.manager.details.acks(event["id"]).get(call["id"]) or {})
+
+    def _unit_set(self, data, body, actor):
+        """A unit's status straight from the board: on a call, its status on that call (as
+        unit_status); off a call, Available or On Break (CrowdCAD's handleStatusChange)."""
+        uid, status, m = body.get("unitUid"), body.get("status"), self.manager
+        for event in data.get("events") or []:
+            unit = next((u for u in event.get("units") or [] if _unit_uid(event["id"], u) == uid), None)
+            if not unit:
+                continue
+            name = unit["callsign"]
+            call = next((c for c in event.get("calls") or []
+                         if c.get("callId") and any(a.get("callsign") == name for a in c.get("assigned") or [])), None)
+            if call:
+                return self.act({"action": "unit_status", "id": call["id"], "unitUid": uid, "status": status,
+                                 "dispatcher": body.get("dispatcher")}, actor)
+            if status in ("AVL", "OOS"):
+                m.unit_status(event["id"], {"unit": name, "status": "Available" if status == "AVL" else "On Break"}, actor)
+                return {"id": ""}
+            if status in ("RESP", "ONSC", "TRAN"):
+                raise ManageError(f"{name} isn't on a call: assign it to one first")
+            raise ManageError("status must be AVL, RESP, ONSC, TRAN or OOS")
+        raise ManageError(f"no unit {uid} on the board", 404)
 
     def _add_unit(self, data, unit, actor):
         """Add Team / Add Supervisor to the event on the board (the first when several are live)."""

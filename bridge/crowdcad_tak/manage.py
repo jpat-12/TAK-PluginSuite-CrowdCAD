@@ -321,6 +321,11 @@ class Manager:
             self.details.restore(event_id, call_id, previous)
             raise
 
+    def call_notes(self, event_id, call_id, text, actor):
+        """Replace a call's TAK notes, keeping its other TAK details."""
+        current = {k: v for k, v in (self.details.get(event_id, call_id) or {}).items() if k != "notes"}
+        return self.call_details(event_id, call_id, {**current, "notes": text}, actor)
+
     def add_team(self, event_id, form, actor):
         """CrowdCAD's Add Team (handleSaveNewTeam)."""
         name = (form or {}).get("name") if isinstance(form, dict) else None

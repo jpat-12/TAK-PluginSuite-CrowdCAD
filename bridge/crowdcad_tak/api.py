@@ -172,5 +172,6 @@ def runner_board(runner, manager=None, field=None):
         return board.build(runner.publisher, int(time.time() * 1000), {
             "crowdcad": status["crowdcad"]["mode"], "tak": status["tak"]["connected"],
             "version": status["version"]}, own_user=manager.pb.user_id if manager else None,
-            heard=field.heard if field else None, positions=field.positions if field else None)
+            heard=field.heard if field else None, positions=field.positions if field else None,
+            designations=field.designations if field else None)
     return source

@@ -53,7 +53,9 @@ DEFAULTS = {
     "id_prefixes": {},
     # Everything live is re-sent this often; stale is set past two misses, so a dead bridge's
     # markers age off TAK instead of lingering as if current.
-    "heartbeat_seconds": 120,
+    # 30 s: a marker someone deletes by hand in CloudTAK or ATAK comes back within 30 s while
+    # its call is open (TAK clients re-add a deleted uid on its next message).
+    "heartbeat_seconds": 30,
     "stale_seconds": 300,
     # One loopback HTTP server: /status for the console, /api/v1/* for the web clients
     # (Caddy publishes only the latter, at crowdcad-tak.<fqdn>).

@@ -6,10 +6,13 @@ export const STALE_AFTER_MS = 3 * 60_000;   // same as ATAK UnitBoard.STALE_AFTE
 export const WALK_M_PER_S = 1.2;
 export const MAX_WALK_ETA_M = 3_000;
 
-export type UnitStatusCode = 'AVL' | 'RESP' | 'ONSC' | 'TRAN' | 'OOS';
+// TASK (CrowdCAD for TAK): assigned by dispatch, not yet acknowledged by the medic's phone.
+// Responding comes only with the acknowledgement (bridge dispatcher.py).
+export type UnitStatusCode = 'AVL' | 'TASK' | 'RESP' | 'ONSC' | 'TRAN' | 'OOS';
 export interface UnitStatusDef { label: string; letter: string; color: string }
 export const UNIT_STATUS: Record<UnitStatusCode, UnitStatusDef> = {
     AVL:  { label: 'Available',      letter: 'A', color: '#43A047' },
+    TASK: { label: 'Tasked',         letter: 'K', color: '#7E57C2' },
     RESP: { label: 'Responding',     letter: 'R', color: '#FFB300' },
     ONSC: { label: 'On Scene',       letter: 'S', color: '#E53935' },
     TRAN: { label: 'Transporting',   letter: 'T', color: '#E53935' },
@@ -57,9 +60,25 @@ export interface Unit {
     status: UnitStatusCode; incident: string;
     since: number; lat: number; lon: number; seen: number;   // seen 0 = never heard
     device?: boolean;            // carried by a phone (position + seen come from its reports)
+    designation?: 'ALS' | 'BLS' | 'SUP';   // board column (the phone's own setting, SUP for supervisors)
 }
 
-export interface Board { now: number; incidents: Incident[]; units: Unit[] }
+/** A closed or cancelled call of the live event (History toggle). */
+export interface HistoryCall {
+    id: string; status: string; type: string; priority: number; location: string;
+    lat: number; lon: number; created: number; updated: number;
+}
+
+/** A medic's acknowledgement (bridge, last 15 min): drives the board's banner. */
+export interface Ack { unit: string; incident: string; at: number }
+
+/** A medic pressed Request Supervisor (twice, on purpose). Stays until a dispatcher clears it. */
+export interface SupRequest { id: string; unit: string; callsign: string; at: number; lat: number; lon: number }
+
+export interface Board {
+    now: number; incidents: Incident[]; units: Unit[]; history?: HistoryCall[]; acks?: Ack[];
+    boundaries?: [number, number][][]; supRequests?: SupRequest[];
+}
 
 /** Black or white text, whichever reads on this background colour. */
 export function textOn(hex: string): string {

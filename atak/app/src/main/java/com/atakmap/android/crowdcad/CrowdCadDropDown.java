@@ -2,6 +2,7 @@ package com.atakmap.android.crowdcad;
 
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
@@ -9,6 +10,8 @@ import android.os.Looper;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -17,6 +20,7 @@ import com.atakmap.android.crowdcad.model.Assignment;
 import com.atakmap.android.crowdcad.model.Board;
 import com.atakmap.android.crowdcad.model.Incident;
 import com.atakmap.android.crowdcad.model.IncidentStatus;
+import com.atakmap.android.crowdcad.model.Roster;
 import com.atakmap.android.crowdcad.model.Unit;
 import com.atakmap.android.crowdcad.model.UnitStatus;
 import com.atakmap.android.crowdcad.plugin.R;
@@ -38,7 +42,8 @@ import java.util.List;
  * The one action is Acknowledge on a call assigned to this phone ({@link AckReporter}). The bridge
  * logs it in CrowdCAD and links the phone to the unit named like its callsign if it isn't yet.
  */
-public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnStateListener, Board.Listener {
+public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnStateListener, Board.Listener,
+        Roster.Listener {
 
     public static final String SHOW_PLUGIN = "com.atakmap.android.crowdcad.SHOW_PLUGIN";
     private static final long TICK_MS = 30_000;               // ages + stale expiry
@@ -47,6 +52,14 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
     private final Context plugin;
     private final Board board;
     private final AckReporter acks;
+    private final UnitIdentity identity;
+    private final SupervisorRequest supervisor;
+    private TextView supervisorLabel;
+    private TextView designationLabel;
+    private ImageView bannerIcon;
+    private TextView bannerStatus;
+    private TextView bannerTitle;
+    private LinearLayout settingsBox;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Runnable render = this::render;
     private final Runnable tick = new Runnable() {
@@ -61,14 +74,19 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
     private TextView assignmentLabel;
     private LinearLayout incidentsBox;
     private LinearLayout unitsBox;
+    private TextView unitsHeader;
     private boolean visible;
 
-    public CrowdCadDropDown(MapView mapView, Context plugin, Board board, AckReporter acks) {
+    public CrowdCadDropDown(MapView mapView, Context plugin, Board board, AckReporter acks, UnitIdentity identity,
+            SupervisorRequest supervisor) {
         super(mapView);
         this.plugin = plugin;
         this.board = board;
         this.acks = acks;
+        this.identity = identity;
+        this.supervisor = supervisor;
         board.addListener(this);
+        identity.roster().addListener(this);
     }
 
     @Override
@@ -85,6 +103,11 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
     void showIncident(Incident incident) {
         onReceive(getMapView().getContext(), new Intent(SHOW_PLUGIN));
         centreOn(incident);
+    }
+
+    @Override
+    public void onRosterChanged() {
+        onBoardChanged();     // the banner's availability comes from the roster
     }
 
     @Override
@@ -105,17 +128,127 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
         col.setPadding(pad, pad, pad, pad);
         scroll.addView(col);
 
-        assignmentLabel = text(col, "", true);
+        // Banner: [unit icon] CrowdCAD · availability            [settings]
+        LinearLayout banner = new LinearLayout(plugin);
+        banner.setOrientation(LinearLayout.HORIZONTAL);
+        banner.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        banner.setPadding(dp(8), dp(6), dp(4), dp(6));
+        GradientDrawable bannerBg = new GradientDrawable();
+        bannerBg.setColor(color(R.color.cc_bg_card));
+        bannerBg.setCornerRadius(dp(6));
+        banner.setBackground(bannerBg);
+        col.addView(banner);
+        bannerIcon = new ImageView(plugin);
+        banner.addView(bannerIcon, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        TextView title = text(banner, "CrowdCAD", true);
+        bannerTitle = title;
+        title.setTextSize(16);
+        title.setPadding(dp(8), 0, dp(8), 0);
+        bannerStatus = text(banner, "", true);
+        bannerStatus.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView gear = new TextView(plugin);       // a plain ⚙: looks the same on every ATAK theme
+        gear.setText("\u2699");
+        gear.setTextSize(24);
+        gear.setTextColor(color(R.color.cc_text_primary));
+        gear.setGravity(android.view.Gravity.CENTER);
+        gear.setContentDescription("Settings");
+        gear.setOnClickListener(v -> settingsBox.setVisibility(
+                settingsBox.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
+        banner.addView(gear, new LinearLayout.LayoutParams(dp(40), dp(40)));
 
-        header(col, "Open incidents");
+        // Request Supervisor: red, and confirmed once more so nobody sends it by a stray tap.
+        Button request = button(col, "Request Supervisor", v -> confirmSupervisor());
+        request.setTextColor(0xFFFFFFFF);
+        GradientDrawable red = new GradientDrawable();
+        red.setColor(0xFFC62828);
+        red.setCornerRadius(dp(6));
+        request.setBackground(red);
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.setMargins(0, dp(8), 0, 0);
+        request.setLayoutParams(rp);
+        supervisorLabel = text(col, "", false);
+        supervisorLabel.setVisibility(View.GONE);
+
+        // Settings: behind the gear, closed by default.
+        settingsBox = column(col);
+        settingsBox.setVisibility(View.GONE);
+        header(settingsBox, "Settings");
+        designationLabel = text(settingsBox, "", false);
+        LinearLayout pick = new LinearLayout(plugin);
+        pick.setOrientation(LinearLayout.HORIZONTAL);
+        settingsBox.addView(pick);
+        for (String d : new String[] {"BLS", "ALS", "SUP", "Off"}) {
+            button(pick, d, v -> {
+                identity.setDesignation("Off".equals(d) ? "" : d);
+                showDesignation();
+            });
+        }
+        showDesignation();
+
+        assignmentLabel = text(col, "", true);
+        assignmentLabel.setPadding(0, dp(8), 0, 0);
+        header(col, "Open calls");
         incidentsBox = column(col);
-        header(col, "Units");
+        unitsHeader = header(col, "Units");
         unitsBox = column(col);
-        TextView foot = text(col, "Dispatch sets your status in CrowdCAD. Acknowledge tells dispatch you saw a call; "
-                + "it doesn't change your status. Not linked to a unit yet? Set your ATAK callsign to your CrowdCAD "
-                + "unit name (e.g. Team 1). Patient details stay in CrowdCAD.", false);
-        foot.setPadding(0, dp(12), 0, 0);
         return scroll;
+    }
+
+    /** The unit icon this phone shows others: green available, grey out of service, light red busy. */
+    private void showDesignation() {
+        String d = identity.designation();
+        designationLabel.setText("Unit icon: " + (d.isEmpty() ? "Off" : d));
+        renderBanner(false);
+    }
+
+    /** "Are you sure?" before the request goes to every supervisor and dispatch. */
+    private void confirmSupervisor() {
+        new android.app.AlertDialog.Builder(getMapView().getContext())
+                .setTitle("Request a supervisor?")
+                .setMessage("This alerts every supervisor and dispatch right away.")
+                .setPositiveButton("Yes, request", (dlg, which) -> {
+                    supervisor.send();
+                    supervisorLabel.setText("Supervisor requested at "
+                            + new java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(new java.util.Date()));
+                    supervisorLabel.setTextColor(0xFFFF8A80);
+                    supervisorLabel.setVisibility(View.VISIBLE);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    /** The banner: this phone's unit icon in its dispatch colour, and its availability in words. */
+    private void renderBanner(boolean tasked) {
+        if (bannerIcon == null)
+            return;
+        Roster roster = identity.roster();
+        String uid = MapView.getDeviceUid();
+        String s = roster.status(uid);
+        Bitmap icon = UnitIcons.bitmap(plugin, identity.designation(), identity.colour());
+        if (icon != null)
+            bannerIcon.setImageBitmap(icon);
+        String label;
+        int colour;
+        if (tasked) {
+            label = "Tasked";
+            colour = R.color.cc_disp;
+        } else if (s == null) {
+            label = "Not on a unit";
+            colour = R.color.cc_text_secondary;
+        } else {
+            switch (s) {
+                case "AVL": label = "Available"; colour = R.color.cc_avl; break;
+                case "RESP": label = "Responding"; colour = R.color.cc_disp; break;
+                case "ONSC": label = "On Scene"; colour = R.color.cc_new; break;
+                case "TRAN": label = "Transporting"; colour = R.color.cc_new; break;
+                default: label = "Out of Service"; colour = R.color.cc_oos; break;
+            }
+        }
+        String unit = roster.unitName(uid);    // this phone's CrowdCAD callsign, e.g. "Medic 1"
+        bannerTitle.setText(unit.isEmpty() ? "CrowdCAD" : "CrowdCAD  ·  " + unit);
+        bannerStatus.setText("·  " + label);
+        bannerStatus.setTextColor(color(colour));
     }
 
     private void render() {
@@ -125,7 +258,7 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
         incidentsBox.removeAllViews();
         List<Incident> open = board.openIncidents(now);
         if (open.isEmpty())
-            text(incidentsBox, "No open incidents.", false);
+            text(incidentsBox, "No open calls.", false);
         String myUid = MapView.getDeviceUid();
         String myCallsign = getMapView().getDeviceCallsign();
         List<String> mine = new ArrayList<>();
@@ -135,13 +268,17 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
                 mine.add(i.id);
             incidentCard(i, now, isMine);
         }
-        assignmentLabel.setText(mine.isEmpty() ? "No call assigned to you"
-                : "Assigned to you: " + android.text.TextUtils.join(", ", mine));
+        boolean waiting = false;     // assigned a call not acknowledged yet: Tasked, as dispatch sees it
+        for (String id : mine)
+            waiting |= acks.ackedAt(id) == null;
+        renderBanner(waiting);
+        assignmentLabel.setText(mine.isEmpty() ? "" : "Assigned: " + android.text.TextUtils.join(", ", mine));
+        assignmentLabel.setVisibility(mine.isEmpty() ? View.GONE : View.VISIBLE);
 
         unitsBox.removeAllViews();
         List<Unit> units = board.units(now);
-        if (units.isEmpty())
-            text(unitsBox, "No units reporting.", false);
+        // No units: no section at all (no "No units reporting" line).
+        unitsHeader.setVisibility(units.isEmpty() ? View.GONE : View.VISIBLE);
         for (Unit u : units) {
             TextView row = text(unitsBox, u.callsign + "  —  " + u.status.label
                     + (u.incidentId.isEmpty() ? "" : " · " + u.incidentId) + "  (" + ago(u.since, now) + ")", false);
@@ -165,7 +302,7 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
         incidentsBox.addView(card, lp);
 
         text(card, (i.priority == 1 ? "P1  " : "") + i.id + "  " + i.type, true);
-        TextView state = text(card, i.status.label + (mine ? "  · assigned to you" : ""), false);
+        TextView state = text(card, i.status.label + (mine ? " · yours" : ""), false);
         state.setTextColor(color(incidentColor(i.status)));
         List<String> who = new ArrayList<>();
         for (String uid : i.assigned)
@@ -175,8 +312,10 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
                 + (who.isEmpty() ? "no unit" : android.text.TextUtils.join(", ", who)), false);
         if (!i.w3w.isEmpty())
             text(card, "///" + i.w3w, false);
+        if (!i.notes.isEmpty())
+            text(card, "Notes: " + i.notes, false);
         if (i.positionIsEstimate())
-            text(card, "Position is an estimate: confirm the spot by radio", false)
+            text(card, "Estimated position", false)
                     .setTextColor(color(incidentColor(IncidentStatus.DISP)));
         card.setOnClickListener(v -> centreOn(i));
 
@@ -184,7 +323,7 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
             return;
         Long ackedAt = acks.ackedAt(i.id);
         if (ackedAt != null) {
-            text(card, "Acknowledged " + ago(ackedAt, now) + " ago", false)
+            text(card, "Acknowledged", false)
                     .setTextColor(color(R.color.cc_avl));
         } else {
             Button ack = button(card, "Acknowledge", v -> {
@@ -247,10 +386,11 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
         return box;
     }
 
-    private void header(ViewGroup parent, String label) {
+    private TextView header(ViewGroup parent, String label) {
         TextView view = text(parent, label.toUpperCase(), false);
         view.setPadding(0, dp(14), 0, dp(4));
         view.setTextSize(11);
+        return view;
     }
 
     private TextView text(ViewGroup parent, String value, boolean bold) {

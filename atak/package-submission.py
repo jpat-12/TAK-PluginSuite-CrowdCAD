@@ -13,14 +13,14 @@ Why this script exists instead of "zip the atak/ folder":
     ./gradlew. Entries are written with Unix modes (gradlew 0755).
 
 Usage (from anywhere, stdlib only):
-  python atak/package-submission.py [--atak 5.6|5.7] [--verify [--sdk DIR]] [--out DIR]
+  python atak/package-submission.py [--atak 5.6|5.7|5.8] [--verify [--sdk DIR]] [--out DIR]
 Default DIR is ~/Desktop/ATAK Development/CrowdCAD-APKs. Writes
 ATAK-Plugin-CrowdCAD_EUD-<ver>-<atak full>-civ-release.zip (e.g. ...-0.1.3-5.6.0-civ-release.zip,
 the naming Jon uses for pipeline uploads) plus a .sha256, and prints the list of included files.
 
 --atak 5.6 (default): zip as-is; build.gradle defaults to 5.6.0.
---atak 5.7: patches the default ATAK_VERSION in app/build.gradle inside the zip so the
-  pipeline builds for 5.7.0 without any -P flags. The file on disk is unchanged.
+--atak 5.7 / 5.8: patches the default ATAK_VERSION in app/build.gradle inside the zip so the
+  pipeline builds for that ATAK (5.7.0 / 5.8.0) without any -P flags. The file on disk is unchanged.
 
 --verify: extracts the zip to ~/iu-tak-build/crowdcad-verify/<name>/, writes a minimal
   local.properties, and runs a clean assembleCivRelease + testCivDebugUnitTest. Use
@@ -46,7 +46,7 @@ ATAK_DIR = pathlib.Path(__file__).resolve().parent
 REPO = ATAK_DIR.parent
 TOP = "ATAK-Plugin-CrowdCAD_EUD"      # single top-level folder inside the zip (EUD = the device plugin, not the bridge)
 
-ATAK_VERSIONS = {'5.6': '5.6.0', '5.7': '5.7.0'}
+ATAK_VERSIONS = {'5.6': '5.6.0', '5.7': '5.7.0', '5.8': '5.8.0'}
 
 # Repo files outside atak/ that belong in the package: (source, path inside the project).
 EXTRA = [
@@ -135,7 +135,7 @@ def main():
     if problems:
         sys.exit("refusing to package:\n  " + "\n  ".join(problems))
 
-    # For 5.7, patch the ATAK_VERSION default in-memory (never touches disk).
+    # For 5.7+, patch the ATAK_VERSION default in-memory (never touches disk).
     if args.atak != "5.6":
         new_entries = []
         for src, rel, override in entries:

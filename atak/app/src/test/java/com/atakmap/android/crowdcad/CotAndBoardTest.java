@@ -148,6 +148,37 @@ public class CotAndBoardTest {
     }
 
     @Test
+    public void rosterColoursUnitIcons() {
+        java.util.Map<String, String> r = com.atakmap.android.crowdcad.cot.RosterMessage.parse(
+                "<event type=\"t-x-crowdcad-roster\"><detail><__crowdcad_roster v=\"1\">"
+                        + "<unit uid=\"ANDROID-a\" status=\"AVL\" name=\"Medic 1\"/><unit uid=\"ANDROID-b\" status=\"TRAN\"/>"
+                        + "<unit uid=\"ANDROID-c\" status=\"\"/></__crowdcad_roster></detail></event>");
+        assertEquals(3, r.size());
+        com.atakmap.android.crowdcad.model.Roster roster = new com.atakmap.android.crowdcad.model.Roster();
+        roster.put(r, com.atakmap.android.crowdcad.cot.RosterMessage.names(
+                "<__crowdcad_roster v=\"1\"><unit uid=\"ANDROID-a\" status=\"AVL\" name=\"Medic 1\"/></__crowdcad_roster>"));
+        assertEquals("Medic 1", roster.unitName("ANDROID-a"));     // the banner's CrowdCAD callsign
+        assertEquals("", roster.unitName("ANDROID-b"));
+        assertEquals("AVL", roster.colour("ANDROID-a"));    // green
+        assertEquals("BUSY", roster.colour("ANDROID-b"));   // light red
+        assertEquals("OOS", roster.colour("ANDROID-c"));    // unknown: grey, never "available" on a guess
+        assertEquals("OOS", roster.colour("ANDROID-zzz"));  // not linked to a unit
+        assertNull(com.atakmap.android.crowdcad.cot.RosterMessage.parse("<__crowdcad_roster v=\"2\">"));
+        assertEquals(UnitIcons.ICON_BASE + "EMS%20ALS%20AVL.png", UnitIcons.path("ALS", "AVL"));   // raw GitHub PNG
+        assertTrue(UnitIcons.ICON_BASE.startsWith("https://raw.githubusercontent.com/"));
+        assertTrue(UnitIcons.valid("SUP"));
+        assertFalse(UnitIcons.valid("MD1"));
+    }
+
+    @Test
+    public void notesComeThroughOnTheCall() {
+        Incident i = IucadIncident.parse(attrs("v", "1", "id", "CC-9", "status", "NEW", "priority", "2",
+                "created", "1", "updated", "1", "notes", " Pt by Gate 3 "), "u", 0, 0, NOW);
+        assertEquals("Pt by Gate 3", i.notes);
+        assertEquals("Pt by Gate 3", i.withStaleAt(NOW + 1).notes);
+    }
+
+    @Test
     public void floorWhat3wordsAndEstimate() {
         Incident i = IucadIncident.parse(attrs("v", "1", "id", "CC-9", "status", "NEW", "priority", "2",
                 "created", "1", "updated", "1", "floor", "3", "w3w", "filled.count.soap"), "u", 0, 0, 75.0, NOW);
@@ -250,7 +281,7 @@ public class CotAndBoardTest {
         IconsetInstaller.Header h = IconsetInstaller.parseHeader(xml);
         assertNotNull(h);
         assertEquals("abee9e5e3aec4b62a5bbb27c78fcb9b27e0140919c7ff132c8c6fa41ab2b0c78", h.uid);
-        assertEquals(2, h.version);                                     // 2: + EMS P1/P2/P3 (build_iconset.py)
+        assertEquals(3, h.version);                                     // 3: + unit icons (build_iconset.py)
         assertNull(IconsetInstaller.parseHeader("<iconset name=\"x\" version=\"1\">"));    // no uid
         assertNull(IconsetInstaller.parseHeader("<iconset uid=\"u\" version=\"one\">"));   // bad version
         assertNull(IconsetInstaller.parseHeader("<other uid=\"u\" version=\"1\">"));

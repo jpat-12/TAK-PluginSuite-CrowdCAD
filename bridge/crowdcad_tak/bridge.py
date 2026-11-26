@@ -37,6 +37,7 @@ class Publisher:
         self.details = details   # calldetails.CallDetails: TAK-side floor/description/what3words, or None
         self.sent = {}     # CoT uid → {event, item, fp, created, updated, done}
         self.events = {}   # event id → {name, unplaced, counts}
+        self.rosters = {}  # event id → [(device uid, status)] last sent (cot.render_roster)
         self.lock = threading.RLock()
 
     def selected(self, record):
@@ -85,6 +86,11 @@ class Publisher:
             for uid, entry in list(self.sent.items()):
                 if entry["event"] == eid and uid not in items and not entry["done"]:
                     count += self._close(entry, now)
+            roster = [(t["uid"], t.get("status") or "", t["name"]) for t in mapping.device_teams(record, self.config)
+                      if not record.get("ended")]
+            if roster != self.rosters.get(eid):
+                self.rosters[eid] = roster
+                self._emit_roster(eid, now)
             self.events[eid] = {
                 "name": record.get("name") or eid, "ended": bool(record.get("ended")),
                 "owner": record.get("userId"),   # the bridge's own events can be ended from TAK
@@ -97,6 +103,10 @@ class Publisher:
                            for kind in ("incident", "unit", "zone", "post")},
             }
             return count
+
+    def _emit_roster(self, eid, now):
+        stale = int(self.config.get("stale_seconds") or 300)
+        self.send(cot.render_roster(eid, self.rosters.get(eid) or [], now, stale))
 
     def _close(self, entry, now):
         entry["item"].closed = True
@@ -141,6 +151,8 @@ class Publisher:
             live = [e for e in self.sent.values() if not e["done"]]
             for entry in live:
                 self._emit(entry, now)
+            for eid in self.events:
+                self._emit_roster(eid, now)
             return len(live)
 
     def status(self):

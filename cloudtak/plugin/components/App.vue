@@ -6,7 +6,10 @@
   action followed by a refresh. Nothing is edited locally.
 -->
 <template>
-    <div class='iucad'>
+    <div
+        ref='rootEl'
+        class='iucad'
+    >
         <div class='d-flex align-items-center px-3 py-2 iucad-header'>
             <IconAmbulance :size='22' />
             <div
@@ -16,7 +19,22 @@
                 CrowdCAD Dispatch
             </div>
             <button
-                class='ms-auto small px-2 iucad-conn'
+                class='ms-auto small px-2 me-2 iucad-who'
+                :class='{ on: showLegend }'
+                title='What the colours and symbols mean'
+                @click='showLegend = !showLegend'
+            >
+                Legend
+            </button>
+            <button
+                class='small px-2 me-2 iucad-who'
+                title='Settings: your dispatcher name, venue boundaries, radar'
+                @click='openSettings'
+            >
+                ⚙ {{ store.dispatcher || 'Set name' }}
+            </button>
+            <button
+                class='small px-2 iucad-conn'
                 :class='store.conn.ok ? "ok" : "bad"'
                 :title='store.conn.error || "Bridge connected"'
                 @click='refresh()'
@@ -37,8 +55,80 @@
             {{ actionError }}
         </div>
 
+        <!-- Request Supervisor: red, on every screen, until a dispatcher clears it. -->
+        <div
+            v-for='r in store.supRequests'
+            :key='r.id'
+            class='iucad-supreq d-flex align-items-center gap-2 px-2 py-2'
+        >
+            <span class='flex-fill'>🚨 <b>{{ r.unit }}</b> ({{ r.callsign }}) requests a supervisor · {{ ago(now - r.at) }} ago</span>
+            <button
+                v-if='r.lat || r.lon'
+                class='iucad-btn'
+                @click='flyTo(r.lat, r.lon)'
+            >
+                Locate
+            </button>
+            <button
+                class='iucad-btn'
+                :disabled='busy'
+                @click='clearSupreq(r.id)'
+            >
+                Clear
+            </button>
+        </div>
+
+        <!-- Legend: every colour and symbol on the board and map, one tap away. -->
+        <div
+            v-if='showLegend'
+            class='iucad-legend px-2 py-2'
+        >
+            <div class='iucad-legend-head'>
+                Calls
+            </div>
+            <div class='d-flex flex-wrap gap-1'>
+                <span
+                    v-for='(def, code) in CALL_LEGEND'
+                    :key='code'
+                    class='iucad-chip'
+                    :style='`background:${def.color};color:${textOn(def.color)}`'
+                >{{ def.label }}</span>
+                <span class='iucad-chip iucad-history'>History (closed / cancelled)</span>
+            </div>
+            <div class='iucad-legend-head'>
+                Units
+            </div>
+            <div class='d-flex flex-wrap gap-1'>
+                <span
+                    v-for='(def, code) in UNIT_STATUS'
+                    :key='code'
+                    class='iucad-chip'
+                    :style='`background:${def.color};color:${textOn(def.color)}`'
+                >{{ def.letter }} · {{ def.label }}</span>
+            </div>
+            <div class='iucad-dim mt-1'>
+                Tasked = assigned, waiting for the medic to acknowledge. Responding unlocks with the
+                acknowledgement. A faded unit hasn't reported for 3 min.
+            </div>
+            <div class='iucad-legend-head'>
+                Map
+            </div>
+            <div class='iucad-dim'>
+                <span class='iucad-legend-line' /> unit → its call, in the unit's colour ·
+                <span class='iucad-legend-dot' /> closed call (History on) ·
+                unit icons: ALS / BLS / SUP — <b style='color:#43A047'>green</b> available,
+                <b style='color:#9E9E9E'>grey</b> out of service, <b style='color:#EF9A9A'>light red</b> busy ·
+                call icons: <b style='color:#E03131'>P1</b> / <b style='color:#F76707'>P2</b> / <b style='color:#FCC419'>P3</b>
+            </div>
+        </div>
+
         <!-- ═══════════════════════════════ BOARD ═══════ -->
-        <template v-if='view.screen === "board"'>
+        <!-- Two independently scrolling halves (calls above, units below) split by a draggable bar. -->
+        <div
+            v-if='view.screen === "board"'
+            ref='boardEl'
+            class='iucad-board'
+        >
             <div class='d-flex gap-1 px-2 pt-2'>
                 <button
                     v-for='(def, code) in UNIT_STATUS'
@@ -52,95 +142,152 @@
                     {{ def.letter }} {{ unitCountByStatus[code] ?? 0 }}
                 </button>
             </div>
-            <div
-                v-if='view.filter'
-                class='d-flex align-items-center px-2 pt-1 iucad-filter-note'
-            >
-                <span>Showing {{ UNIT_STATUS[view.filter as UnitStatusCode].label }} units only</span>
-                <button
-                    class='iucad-btn ms-auto'
-                    @click='store.view.filter = null'
-                >
-                    Clear
-                </button>
-            </div>
 
-            <div class='iucad-sec px-2 mt-2'>
-                <span>Incidents ({{ openIncidents.length }})</span>
-                <button
-                    class='iucad-btn primary'
-                    @click='startNew'
-                >
-                    + New
-                </button>
-            </div>
             <div
-                v-if='!openIncidents.length'
-                class='px-2 iucad-dim'
+                class='iucad-pane'
+                :style='`height:${split}%`'
             >
-                No open incidents.
-            </div>
-            <div
-                v-for='inc in openIncidents'
-                :key='inc.id'
-                class='iucad-row iucad-filled px-2'
-                :style='rowStyle(INCIDENT_STATUS[inc.status].color)'
-                @click='openIncident(inc.id)'
-            >
-                <span class='iucad-chip iucad-chip-on me-2'>
-                    {{ shortForm(inc.id) }}
-                </span>
-                <div class='flex-fill'>
-                    <div>{{ headline(inc) }}</div>
-                    <div class='iucad-dim'>
-                        {{ INCIDENT_STATUS[inc.status].label }} · {{ ago(now - inc.created) }} ago ·
-                        {{ unitsOn(inc.id).length }} on it{{ waiting(inc).length ? ' · ' + waiting(inc).length + ' assigned, not moving' : '' }}
+                <div class='iucad-sec px-2 mt-1'>
+                    <span>Calls ({{ openIncidents.length }})</span>
+                    <span class='d-flex gap-1'>
+                        <button
+                            class='iucad-btn'
+                            :class='{ on: store.showHistory }'
+                            :title='store.showHistory ? "Hide closed calls" : "Show this event&apos;s closed calls (faded)"'
+                            @click='toggleHistory'
+                        >
+                            History{{ store.showHistory ? ' ✓' : '' }}
+                        </button>
+                        <button
+                            class='iucad-btn primary'
+                            @click='startNew'
+                        >
+                            + New
+                        </button>
+                    </span>
+                </div>
+                <div class='iucad-scroll'>
+                    <div
+                        v-if='!openIncidents.length && !(store.showHistory && store.history.length)'
+                        class='px-2 iucad-dim'
+                    >
+                        No open calls.
                     </div>
+                    <div
+                        v-for='inc in openIncidents'
+                        :key='inc.id'
+                        class='iucad-row iucad-filled px-2'
+                        :style='rowStyle(INCIDENT_STATUS[inc.status].color)'
+                        @click='openIncident(inc.id)'
+                    >
+                        <span class='iucad-chip iucad-chip-on me-2'>
+                            {{ shortForm(inc.id) }}
+                        </span>
+                        <div class='flex-fill'>
+                            <div>{{ headline(inc) }}</div>
+                            <div class='iucad-dim'>
+                                {{ INCIDENT_STATUS[inc.status].label }} · {{ ago(now - inc.created) }} ago ·
+                                {{ inc.assigned.length }} assigned
+                            </div>
+                        </div>
+                    </div>
+                    <template v-if='store.showHistory'>
+                        <div
+                            v-for='h in historyCalls'
+                            :key='"h" + h.id'
+                            class='iucad-row iucad-history px-2'
+                            @click='flyTo(h.lat, h.lon)'
+                        >
+                            <span class='iucad-chip me-2'>{{ shortForm(h.id) }}</span>
+                            <div class='flex-fill'>
+                                <div>P{{ h.priority }} · {{ h.type }}{{ h.location ? ' · ' + h.location : '' }}</div>
+                                <div class='iucad-dim'>
+                                    {{ h.status === 'CXL' ? 'Cancelled' : 'Closed' }} · opened {{ ago(now - h.created) }} ago
+                                </div>
+                            </div>
+                        </div>
+                    </template>
                 </div>
             </div>
 
-            <div class='iucad-sec px-2 mt-3'>
-                <span>Units ({{ filteredUnits.length }})</span>
-                <button
-                    class='iucad-btn primary'
-                    @click='startAddUnit'
+            <div
+                class='iucad-split'
+                title='Drag to resize calls and units'
+                @pointerdown='startSplit'
+            />
+
+            <div class='iucad-pane iucad-pane-units'>
+                <div class='iucad-sec px-2 mt-1'>
+                    <span>Units ({{ filteredUnits.length }})</span>
+                    <button
+                        class='iucad-btn primary'
+                        @click='startAddUnit'
+                    >
+                        + Add
+                    </button>
+                </div>
+                <div
+                    v-if='!store.units.length'
+                    class='px-2 iucad-dim'
                 >
-                    + Add
-                </button>
-            </div>
-            <div
-                v-if='!store.units.length'
-                class='px-2 iucad-dim'
-            >
-                No units in this event yet. Add one, or add teams in CrowdCAD.
-            </div>
-            <div
-                v-for='u in filteredUnits'
-                :key='u.uid'
-                class='iucad-row iucad-filled px-2'
-                :class='{ "iucad-stale": isStale(u) }'
-                :style='rowStyle(UNIT_STATUS[u.status].color)'
-                @click='panTo(u)'
-            >
-                <span class='iucad-badge iucad-chip-on me-2'>
-                    {{ UNIT_STATUS[u.status].letter }}
-                </span>
-                <div class='flex-fill'>
-                    <div>{{ u.callsign }}</div>
-                    <div class='iucad-dim'>
-                        {{ UNIT_STATUS[u.status].label }}{{ u.incident ? ' · ' + shortForm(u.incident) : '' }}{{ isStale(u) ? (u.seen ? ' · last heard ' + ago(now - u.seen) + ' ago' : ' · not heard yet') : '' }}{{ hasPosition(u) ? '' : ' · no GPS fix' }}
+                    No units yet.
+                </div>
+                <div
+                    v-else
+                    class='iucad-cols'
+                >
+                    <div
+                        v-for='col in COLUMNS'
+                        :key='col'
+                        class='iucad-col'
+                    >
+                        <div class='iucad-col-head'>
+                            {{ col }} ({{ unitsIn(col).length }})
+                        </div>
+                        <div class='iucad-scroll'>
+                            <div
+                                v-for='u in unitsIn(col)'
+                                :key='u.uid'
+                                class='iucad-unit iucad-filled'
+                                :class='{ "iucad-stale": isStale(u) }'
+                                :style='rowStyle(UNIT_STATUS[u.status].color)'
+                                @click='panTo(u)'
+                            >
+                                <div class='d-flex align-items-start'>
+                                    <div class='flex-fill iucad-unit-name'>
+                                        {{ u.callsign }}
+                                    </div>
+                                    <button
+                                        class='iucad-x'
+                                        :disabled='busy'
+                                        :title='"Remove " + u.callsign + " from the event"'
+                                        @click.stop='removeUnit(u)'
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                                <div class='iucad-dim'>
+                                    {{ UNIT_STATUS[u.status].label }}{{ u.incident ? ' · ' + shortForm(u.incident) : '' }}{{ isStale(u) && u.device ? (u.seen ? ' · ' + ago(now - u.seen) : ' · not heard') : '' }}
+                                </div>
+                                <div class='d-flex gap-1 mt-1'>
+                                    <button
+                                        v-for='code in UNIT_CODES'
+                                        :key='code'
+                                        class='iucad-letter'
+                                        :class='{ on: u.status === code }'
+                                        :disabled='busy || u.status === code || (code === "RESP" && u.status === "TASK")'
+                                        :title='code === "RESP" && u.status === "TASK" ? "Waiting for " + u.callsign + " to acknowledge" : "Set " + u.callsign + " " + UNIT_STATUS[code].label'
+                                        @click.stop='setUnitFromBoard(u, code)'
+                                    >
+                                        {{ UNIT_STATUS[code].letter }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <button
-                    class='iucad-x ms-2'
-                    :disabled='busy'
-                    :title='"Remove " + u.callsign + " from the event"'
-                    @click.stop='removeUnit(u)'
-                >
-                    ✕
-                </button>
             </div>
-        </template>
+        </div>
 
         <!-- ═══════════════════════════════ INCIDENT ════ -->
         <template v-else-if='view.screen === "incident"'>
@@ -219,15 +366,18 @@
                     </button>
                 </div>
                 <UnitRadar
-                    v-if='radarUnits.length'
+                    v-if='radarUnits.length || store.boundaries.length'
                     :units='radarUnits'
+                    :center='active'
+                    :boundaries='store.boundaries'
+                    :satellite='store.satellite'
                     @pick='panToUid'
                 />
                 <div
                     v-else
                     class='px-2 iucad-dim'
                 >
-                    No units with a GPS position yet.
+                    No units with a GPS position yet. Draw the venue in ⚙ Settings to see it here.
                 </div>
                 <div
                     v-if='radarUnits.length'
@@ -242,12 +392,48 @@
                 <div class='px-2'>
                     Opened {{ ago(now - active.created) }} ago{{ active.eventTitle ? ' · ' + active.eventTitle : '' }}
                 </div>
-                <div
-                    v-if='active.notes'
-                    class='px-2'
-                >
-                    {{ active.notes }}
+                <div class='iucad-sec px-2'>
+                    <span>Notes (sent to ATAK · no names, DOB or MRN)</span>
+                    <button
+                        v-if='!editingNotes'
+                        class='iucad-btn'
+                        @click='startNotes'
+                    >
+                        {{ active.notes ? 'Edit' : 'Add' }}
+                    </button>
                 </div>
+                <div
+                    v-if='!editingNotes'
+                    class='px-2'
+                    :class='{ "iucad-dim": !active.notes }'
+                    style='white-space:pre-wrap'
+                >
+                    {{ active.notes || 'No notes.' }}
+                </div>
+                <template v-else>
+                    <textarea
+                        v-model='notesDraft'
+                        class='iucad-input mx-2'
+                        rows='3'
+                        maxlength='240'
+                        placeholder='e.g. Pt by Gate 3, ambulatory, family on scene'
+                    />
+                    <div class='d-flex gap-1 px-2 pb-1'>
+                        <button
+                            class='iucad-btn primary'
+                            :disabled='busy'
+                            @click='saveNotes'
+                        >
+                            Save
+                        </button>
+                        <button
+                            class='iucad-btn'
+                            @click='editingNotes = false'
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </template>
                 <div class='d-flex flex-wrap gap-1 px-2 py-1'>
                     <button
                         class='iucad-btn'
@@ -314,7 +500,7 @@
                             class='iucad-btn iucad-unit-btn'
                             :class='{ on: u.status === code }'
                             :style='`border-color:${UNIT_STATUS[code].color}` + (u.status === code ? `;background:${UNIT_STATUS[code].color};color:${textOn(UNIT_STATUS[code].color)}` : "")'
-                            :disabled='busy || u.status === code'
+                            :disabled='busy || u.status === code || (code === "RESP" && u.status === "TASK")'
                             @click='setUnitStatus(u.uid, code)'
                         >
                             {{ UNIT_STATUS[code].label }}
@@ -354,7 +540,7 @@
                             class='iucad-btn iucad-unit-btn'
                             :class='{ on: statusOf(uid) === code }'
                             :style='`border-color:${UNIT_STATUS[code].color}` + (statusOf(uid) === code ? `;background:${UNIT_STATUS[code].color};color:${textOn(UNIT_STATUS[code].color)}` : "")'
-                            :disabled='busy || statusOf(uid) === code'
+                            :disabled='busy || statusOf(uid) === code || (code === "RESP" && statusOf(uid) === "TASK")'
                             @click='setUnitStatus(uid, code)'
                         >
                             {{ UNIT_STATUS[code].label }}
@@ -666,7 +852,7 @@
                     :key='c.uid'
                     :value='c.uid'
                 >
-                    {{ c.callsign }}
+                    {{ contactLabel(c) }}
                 </option>
             </select>
             <div class='d-flex gap-1 px-2 py-2'>
@@ -685,6 +871,133 @@
                 </button>
             </div>
         </template>
+
+        <!-- ═══════════════════════════════ SETTINGS ════ -->
+        <template v-if='view.screen === "settings"'>
+            <div class='px-2 pt-2 pb-1'>
+                <button
+                    class='iucad-btn'
+                    @click='leaveSettings'
+                >
+                    ◀ Board
+                </button>
+                <div
+                    class='fw-bold mt-1'
+                    style='font-size:18px'
+                >
+                    Settings
+                </div>
+            </div>
+            <div class='iucad-sec px-2'>
+                Dispatcher callsign (logged with every change)
+            </div>
+            <div class='d-flex gap-1 px-2'>
+                <input
+                    v-model='nameDraft'
+                    class='iucad-input flex-fill'
+                    maxlength='40'
+                    placeholder='Dispatcher1'
+                    @keyup.enter='saveName'
+                >
+                <button
+                    class='iucad-btn primary'
+                    :disabled='!nameDraft.trim()'
+                    @click='saveName'
+                >
+                    Save
+                </button>
+            </div>
+            <div class='iucad-sec px-2'>
+                Venue boundaries (radar + map, shared with every dispatcher)
+            </div>
+            <div class='px-2 iucad-dim'>
+                {{ store.boundaries.length }} drawn. Outline the stadium, a concourse, a building: on the radar
+                they show which units are close by walking, not just by distance.
+            </div>
+            <div
+                v-if='!drawing'
+                class='d-flex flex-wrap gap-1 px-2 py-1'
+            >
+                <button
+                    class='iucad-btn primary'
+                    @click='beginDraw'
+                >
+                    + Draw boundary
+                </button>
+                <button
+                    v-if='store.boundaries.length'
+                    class='iucad-btn'
+                    @click='undoBoundary'
+                >
+                    Remove last
+                </button>
+                <button
+                    v-if='store.boundaries.length'
+                    class='iucad-btn'
+                    @click='clearBoundaries'
+                >
+                    Clear all
+                </button>
+            </div>
+            <div
+                v-else
+                class='px-2 py-1'
+            >
+                <div class='iucad-filter-note mb-1'>
+                    Click the map at each corner ({{ drawCount }} so far), then Finish.
+                </div>
+                <div class='d-flex gap-1'>
+                    <button
+                        class='iucad-btn primary'
+                        :disabled='drawCount < 3'
+                        @click='endDraw'
+                    >
+                        Finish
+                    </button>
+                    <button
+                        class='iucad-btn'
+                        :disabled='!drawCount'
+                        @click='undoPoint'
+                    >
+                        Undo point
+                    </button>
+                    <button
+                        class='iucad-btn'
+                        @click='abortDraw'
+                    >
+                        Cancel
+                    </button>
+                </div>
+            </div>
+            <div class='iucad-sec px-2'>
+                Radar
+            </div>
+            <label class='px-2 d-flex align-items-center gap-2'>
+                <input
+                    type='checkbox'
+                    :checked='store.satellite'
+                    @change='setSatellite(($event.target as HTMLInputElement).checked)'
+                >
+                Show the map (satellite) under the radar
+            </label>
+        </template>
+
+        <!-- The visible map's centre (beside this drawer): where "Map centre" puts a new call. -->
+        <Teleport to='body'>
+            <div
+                v-if='crosshair'
+                class='iucad-crosshair'
+                :style='`left:${crosshair.x}px;top:${crosshair.y}px`'
+            />
+        </Teleport>
+
+        <div
+            v-if='banner'
+            class='iucad-banner'
+            @click='banner = ""'
+        >
+            ✓ {{ banner }}
+        </div>
     </div>
 </template>
 
@@ -693,7 +1006,10 @@ import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { IconAmbulance } from '@tabler/icons-vue';
 import UnitRadar from './UnitRadar.vue';
 import { store } from '../lib/store.ts';
-import { act, contacts, refresh, w3wAt, w3wFind, type TakContact } from '../lib/bridge.ts';
+import { act, contacts, refresh, w3wAt, w3wFind, setDispatcher, setSatellite, type TakContact } from '../lib/bridge.ts';
+import { cancelDrawing, finishDrawing, startDrawing, undoPoint } from '../lib/draw.ts';
+import { visibleCentre, visibleCentreLatLon, type ScreenPoint } from '../lib/view-centre.ts';
+import { drawHistory } from '../lib/lines.ts';
 import { pickPoint, cancelPick, showPin, clearPin } from '../lib/map-pick.ts';
 import { getPluginApi } from '../lib/plugin-api.ts';
 import {
@@ -714,8 +1030,14 @@ const now = computed(() => tick.value + store.skewMs);
 let timer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
     timer = setInterval(() => { tick.value = Date.now(); }, 5_000);
+    if (!store.dispatcher) openSettings();
+    trackCentre();
 });
 onUnmounted(() => {
+    observer?.disconnect();
+    window.removeEventListener('resize', placeCrosshair);
+    crosshair.value = null;
+    cancelDrawing();
     clearInterval(timer);
     stopPicking();
     clearPin();
@@ -757,6 +1079,135 @@ const callsignFor = (uid: string): string => store.units.find(u => u.uid === uid
 function rowStyle(color: string): string {
     return `background:${color};color:${textOn(color)}`;
 }
+
+// ── Board layout, history, dispatcher name, acknowledge banner, legend ─────────────
+const showLegend = ref(false);
+// Calls in the legend: the board's row colours (closed / cancelled leave the board).
+const CALL_LEGEND = Object.fromEntries(Object.entries(INCIDENT_STATUS)
+    .filter(([code]) => code !== 'CLOSED' && code !== 'CXL')
+    .map(([code, def]) => [code, { color: def.color, label: code === 'NEW' ? 'New · no unit sent' : def.label }]));
+const COLUMNS = ['BLS', 'ALS', 'SUP'] as const;
+const unitsIn = (col: string): Unit[] => filteredUnits.value.filter(u => (u.designation || 'BLS') === col);
+const historyCalls = computed(() => store.history.slice().sort((a, b) => b.updated - a.updated));
+
+// Calls pane height in % of the board; the units pane takes the rest. Remembered per browser.
+const SPLIT_KEY = 'crowdcad-dispatch:split';
+const split = ref(Number((() => { try { return localStorage.getItem(SPLIT_KEY); } catch { return null; } })()) || 50);
+const boardEl = ref<HTMLElement | null>(null);
+
+function startSplit(e: PointerEvent): void {
+    const el = boardEl.value;
+    if (!el) return;
+    const box = el.getBoundingClientRect();
+    const move = (ev: PointerEvent): void => {
+        split.value = Math.min(85, Math.max(15, ((ev.clientY - box.top) / box.height) * 100));
+    };
+    const up = (): void => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        try { localStorage.setItem(SPLIT_KEY, String(Math.round(split.value))); } catch { /* storage blocked */ }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    e.preventDefault();
+}
+
+function toggleHistory(): void {
+    store.showHistory = !store.showHistory;
+    drawHistory(store.showHistory ? store.history : []);
+}
+
+async function clearSupreq(id: string): Promise<void> {
+    await run(() => act({ action: 'clear_supreq', id }));
+}
+
+// ── Settings: dispatcher callsign, venue boundaries, radar ─────────────────────────
+const nameDraft = ref(store.dispatcher || 'Dispatcher1');
+const drawing = ref(false);
+const drawCount = ref(0);
+
+function openSettings(): void {
+    nameDraft.value = store.dispatcher || 'Dispatcher1';
+    store.view = { screen: 'settings', incidentId: null, filter: view.value.filter };
+}
+
+function leaveSettings(): void {
+    abortDraw();
+    show('board');
+}
+
+function saveName(): void {
+    if (nameDraft.value.trim()) setDispatcher(nameDraft.value.trim());
+}
+
+function beginDraw(): void {
+    drawing.value = true;
+    drawCount.value = 0;
+    startDrawing((n) => { drawCount.value = n; });
+}
+
+function abortDraw(): void {
+    drawing.value = false;
+    cancelDrawing();
+}
+
+async function saveBoundaries(polys: [number, number][][]): Promise<void> {
+    await run(() => act({ action: 'boundaries', boundaries: polys }));
+}
+
+async function endDraw(): Promise<void> {
+    const poly = finishDrawing();
+    drawing.value = false;
+    if (poly) await saveBoundaries([...store.boundaries, poly]);
+}
+
+async function undoBoundary(): Promise<void> {
+    await saveBoundaries(store.boundaries.slice(0, -1));
+}
+
+async function clearBoundaries(): Promise<void> {
+    if (window.confirm('Remove every venue boundary for all dispatchers?')) await saveBoundaries([]);
+}
+
+// Two TAK devices can share a callsign (one person, two phones): add the device so they differ.
+function contactLabel(c: TakContact): string {
+    const same = unitContacts.value.filter(o => o.callsign === c.callsign).length > 1;
+    const isWeb = c.uid.startsWith('ANDROID-CloudTAK-');
+    const device = isWeb ? 'CloudTAK' : (c.takv || '').split(':')[0].trim();
+    if (!same && !isWeb) return c.callsign;
+    return c.callsign + ' — ' + (device || c.uid.slice(-6));
+}
+
+// ── Crosshair at the visible map's centre ─────────────────────────────────────────
+const rootEl = ref<HTMLElement | null>(null);
+const crosshair = ref<ScreenPoint | null>(null);
+let observer: ResizeObserver | undefined;
+
+function placeCrosshair(): void {
+    crosshair.value = visibleCentre(rootEl.value?.parentElement ?? rootEl.value);
+}
+
+function trackCentre(): void {
+    placeCrosshair();
+    observer = new ResizeObserver(placeCrosshair);
+    if (rootEl.value) observer.observe(rootEl.value);
+    try {
+        const canvas = getPluginApi()?.map.getCanvas();
+        if (canvas) observer.observe(canvas);
+    } catch { /* map not ready */ }
+    window.addEventListener('resize', placeCrosshair);
+}
+
+// "Medic 1 acknowledged CC-009" across the bottom for 8 s, once per acknowledgement.
+const banner = ref('');
+let bannerTimer: ReturnType<typeof setTimeout> | undefined;
+watch(() => store.newAcks, (acks) => {
+    if (!acks.length) return;
+    banner.value = acks.map(a => a.unit + ' acknowledged ' + shortForm(a.incident) + ' (' + a.incident + ')').join(' · ');
+    store.newAcks = [];
+    clearTimeout(bannerTimer);
+    bannerTimer = setTimeout(() => { banner.value = ''; }, 8_000);
+});
 
 function toggleFilter(code: string): void {
     store.view.filter = store.view.filter === code ? null : code;
@@ -811,6 +1262,7 @@ function show(screen: 'board'): void {
 }
 
 function openIncident(id: string): void {
+    editingNotes.value = false;
     store.view = { screen: 'incident', incidentId: id, filter: view.value.filter };
 }
 
@@ -1000,6 +1452,29 @@ async function setUnitStatus(uid: string, status: UnitStatusCode): Promise<void>
     await run(() => act({ action: 'unit_status', id: inc.id, unitUid: uid, status }));
 }
 
+// Straight from the board: on a call, the unit's status on it; off a call, Available / Out of Service.
+async function setUnitFromBoard(u: Unit, status: UnitStatusCode): Promise<void> {
+    const inc = store.incidents.find(i => i.assigned.includes(u.uid));
+    if (inc && (status === 'AVL' || status === 'OOS') && inc.assigned.length <= 1
+        && !window.confirm(u.callsign + ' is the last unit on ' + inc.id + ': CrowdCAD closes the call. Continue?')) return;
+    await run(() => act({ action: 'unit_set', unitUid: u.uid, status }));
+}
+
+// The call's TAK notes: sent to ATAK with the call, and kept as a [TAK note] line in CrowdCAD.
+const editingNotes = ref(false);
+const notesDraft = ref('');
+
+function startNotes(): void {
+    notesDraft.value = active.value?.notes ?? '';
+    editingNotes.value = true;
+}
+
+async function saveNotes(): Promise<void> {
+    const inc = active.value;
+    if (!inc) return;
+    if (await run(() => act({ action: 'notes', id: inc.id, notes: notesDraft.value.trim() }))) editingNotes.value = false;
+}
+
 async function unassign(uid: string): Promise<void> {
     const inc = active.value;
     if (inc) await run(() => act({ action: 'unassign', id: inc.id, unitUid: uid }));
@@ -1010,9 +1485,10 @@ async function createIncident(): Promise<void> {
     if (!f) return;
     let lat: number, lon: number;
     if (f.source === 'centre') {
-        const c = (() => { try { return getPluginApi()?.map.getCenter(); } catch { return undefined; } })();
+        // The crosshair's point: the centre of the map the dispatcher sees, beside this drawer.
+        const c = visibleCentreLatLon(rootEl.value?.parentElement ?? rootEl.value);
         if (!c) { actionError.value = 'Could not read the map centre.'; return; }
-        lat = c.lat; lon = c.lng;
+        lat = c.lat; lon = c.lon;
     } else {
         if (f.source === 'coords') useCoords();
         if (!point.value) {
@@ -1078,8 +1554,46 @@ async function createIncident(): Promise<void> {
 .iucad-chip-on { background:rgba(0,0,0,.28); color:inherit; }
 .iucad-x { background:transparent; border:0; color:inherit; opacity:.75; cursor:pointer; font-size:14px; }
 .iucad-x:hover { opacity:1; }
+.iucad-who { border:1px solid #555; border-radius:10px; background:#111; color:#eee; cursor:pointer; }
+.iucad-who.on { background:#e5e7eb; color:#000; }
+.iucad-supreq { background:#b71c1c; color:#fff; font-weight:600; border-bottom:2px solid #ff5252; }
+.iucad-crosshair {
+    position:fixed; width:28px; height:28px; margin:-14px 0 0 -14px; pointer-events:none; z-index:2;
+    background:
+        linear-gradient(#00E5FF, #00E5FF) center / 2px 100% no-repeat,
+        linear-gradient(#00E5FF, #00E5FF) center / 100% 2px no-repeat;
+    opacity:.85; filter:drop-shadow(0 0 1px #000);
+}
+.iucad-legend { background:#0b0b0b; border-bottom:1px solid #333; font-size:12px; }
+.iucad-legend-head { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#aaa; margin:6px 0 3px; }
+.iucad-legend-line { display:inline-block; width:22px; border-top:3px dashed #FFB300; vertical-align:middle; }
+.iucad-legend-dot { display:inline-block; width:10px; height:10px; border-radius:50%; background:#9E9E9E; opacity:.5; vertical-align:middle; }
+.iucad-board { display:flex; flex-direction:column; height:calc(100% - 44px); min-height:420px; }
+.iucad-pane { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+.iucad-pane-units { flex:1; }
+.iucad-scroll { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; }
+.iucad-split { height:8px; flex:none; cursor:row-resize; background:#222; border-top:1px solid #333; border-bottom:1px solid #333; }
+.iucad-split:hover { background:#333; }
+.iucad-cols { flex:1; min-height:0; display:grid; grid-template-columns:repeat(3, 1fr); gap:4px; padding:0 4px; }
+.iucad-col { display:flex; flex-direction:column; min-height:0; min-width:0; }
+.iucad-col-head { font-size:11px; font-weight:700; color:#aaa; text-align:center; padding:2px 0; border-bottom:1px solid #333; }
+.iucad-unit { border-radius:4px; padding:4px 6px; margin:3px 0; cursor:pointer; }
+.iucad-unit-name { font-weight:700; font-size:13px; word-break:break-word; }
+.iucad-unit .iucad-letter { width:20px; height:20px; font-size:10px; }
+.iucad-history { opacity:.45; filter:grayscale(1); }
+.iucad-banner {
+    position:sticky; bottom:0; z-index:5; margin:0; padding:10px 12px; cursor:pointer;
+    background:#1b5e20; color:#fff; font-weight:700; border-top:2px solid #43A047;
+}
 .iucad-unit-btn { padding:3px 8px; min-height:28px; font-size:12px; border-width:2px; }
 .iucad-unit-btn:disabled { opacity:1; }
+/* Board unit rows: one letter per status, the current one filled. */
+.iucad-letter {
+    width:24px; height:24px; padding:0; border-radius:4px; font-size:11px; font-weight:800;
+    background:rgba(0,0,0,.25); color:inherit; border:1px solid rgba(0,0,0,.35); cursor:pointer;
+}
+.iucad-letter.on { background:rgba(0,0,0,.55); }
+.iucad-letter:disabled { cursor:default; }
 
 .iucad-dim { color:#aaa; font-size:12px; }
 

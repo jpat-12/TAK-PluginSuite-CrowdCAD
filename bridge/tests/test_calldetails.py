@@ -35,7 +35,7 @@ class CleanTest(unittest.TestCase):
         d = calldetails.clean({"lat": "39.1825", "lon": -86.5251, "floor": "3", "source": "map",
                                "w3w": "///Filled.Count.Soap", "description": "  Sec 104\nRow 22 "})
         self.assertEqual(d, {"lat": 39.1825, "lon": -86.5251, "floor": 3, "source": "map", "post": None,
-                             "w3w": "filled.count.soap", "description": "Sec 104 Row 22"})
+                             "w3w": "filled.count.soap", "description": "Sec 104 Row 22", "notes": None})
         self.assertEqual(calldetails.clean({"floor": -1})["floor"], -1)
         self.assertIsNone(calldetails.clean({"floor": 0})["floor"])
         for bad in ({"lat": 1}, {"lat": 0, "lon": 0}, {"lat": 95, "lon": 1}, {"floor": 9},
@@ -306,6 +306,9 @@ class BoardTest(unittest.TestCase):
                     b'hae="0" ce="5" le="5"/><detail/></event>')                      # no fix: keep the last one
         field.offer(b'<event version="2.0" uid="ANDROID-zz" type="a-f-G-U-C"><point lat="1" lon="1"/></event>')
         self.assertEqual(field.positions, {"ANDROID-t3": (39.18, -86.52)})
+        field.offer(b'<event version="2.0" uid="ANDROID-t3" type="a-f-G-U-C"><point lat="39.18" lon="-86.52"/>'
+                    b'<detail><__crowdcad_unit designation="ALS"/></detail></event>')
+        self.assertEqual(field.designations, {"ANDROID-t3": "ALS"})
 
 
 if __name__ == "__main__":

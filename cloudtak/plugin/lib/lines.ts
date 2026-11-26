@@ -59,6 +59,68 @@ export function drawLines(incidents: Incident[], units: Unit[]): void {
     try { ensure(); } catch (e) { console.warn('[plugin-crowdcad] lines not drawn', e); }
 }
 
+const HISTORY = 'plugin-crowdcad-history';
+let history: { type: 'FeatureCollection'; features: object[] } = { type: 'FeatureCollection', features: [] };
+let watchingHistory = false;
+
+function ensureHistory(): void {
+    const map = getPluginApi()?.map;
+    if (!map || !map.isStyleLoaded()) return;
+    const source = map.getSource(HISTORY) as GeoJSONSource | undefined;
+    if (source) {
+        source.setData(history as never);
+        return;
+    }
+    map.addSource(HISTORY, { type: 'geojson', data: history as never });
+    map.addLayer({
+        id: HISTORY, type: 'circle', source: HISTORY,
+        paint: { 'circle-radius': 7, 'circle-color': '#9E9E9E', 'circle-opacity': 0.4,
+            'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1, 'circle-stroke-opacity': 0.5 },
+    });
+    if (!watchingHistory) {
+        watchingHistory = true;
+        map.on('styledata', ensureHistory);
+    }
+}
+
+/** History toggle: the event's closed calls as faded grey dots (never mistaken for open calls). */
+export function drawHistory(calls: { lat: number; lon: number; id: string }[]): void {
+    history = { type: 'FeatureCollection', features: calls.filter(hasPosition).map(c => ({
+        type: 'Feature', properties: { id: c.id }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] },
+    })) };
+    try { ensureHistory(); } catch (e) { console.warn('[plugin-crowdcad] history not drawn', e); }
+}
+
+const VENUE = 'plugin-crowdcad-venue';
+let venue: { type: 'FeatureCollection'; features: object[] } = { type: 'FeatureCollection', features: [] };
+let watchingVenue = false;
+
+function ensureVenue(): void {
+    const map = getPluginApi()?.map;
+    if (!map || !map.isStyleLoaded()) return;
+    const source = map.getSource(VENUE) as GeoJSONSource | undefined;
+    if (source) {
+        source.setData(venue as never);
+        return;
+    }
+    map.addSource(VENUE, { type: 'geojson', data: venue as never });
+    map.addLayer({ id: VENUE, type: 'line', source: VENUE,
+        paint: { 'line-color': '#00E5FF', 'line-width': 2, 'line-opacity': 0.7, 'line-dasharray': [4, 2] } });
+    if (!watchingVenue) {
+        watchingVenue = true;
+        map.on('styledata', ensureVenue);
+    }
+}
+
+/** The venue outlines a dispatcher drew (Settings), as cyan dashed lines on the map. */
+export function drawBoundaries(polys: [number, number][][]): void {
+    venue = { type: 'FeatureCollection', features: polys.map(p => ({
+        type: 'Feature', properties: {},
+        geometry: { type: 'LineString', coordinates: [...p, p[0]].map(([lat, lon]) => [lon, lat]) },
+    })) };
+    try { ensureVenue(); } catch (e) { console.warn('[plugin-crowdcad] venue not drawn', e); }
+}
+
 /** Plugin disabled: take the lines off the map. */
 export function clearLines(): void {
     const map = getPluginApi()?.map;
@@ -69,5 +131,15 @@ export function clearLines(): void {
         watching = false;
         if (map.getLayer(LAYER)) map.removeLayer(LAYER);
         if (map.getSource(SOURCE)) map.removeSource(SOURCE);
+        map.off('styledata', ensureHistory);
+        watchingHistory = false;
+        if (map.getLayer(HISTORY)) map.removeLayer(HISTORY);
+        if (map.getSource(HISTORY)) map.removeSource(HISTORY);
+        history = { type: 'FeatureCollection', features: [] };
+        map.off('styledata', ensureVenue);
+        watchingVenue = false;
+        if (map.getLayer(VENUE)) map.removeLayer(VENUE);
+        if (map.getSource(VENUE)) map.removeSource(VENUE);
+        venue = { type: 'FeatureCollection', features: [] };
     } catch { /* map already gone */ }
 }

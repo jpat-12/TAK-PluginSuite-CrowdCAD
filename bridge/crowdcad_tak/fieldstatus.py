@@ -29,8 +29,12 @@ from . import dispatch, mapping
 from .dispatch import Clock, DispatchError
 
 ACK = "__crowdcad_ack"
+SUPREQ = "__crowdcad_supreq"          # Request Supervisor (ATAK plugin, confirmed twice on the phone)
+SUPREQ_AT = re.compile(rb'<__crowdcad_supreq\b[^>]*?\bat="(\d{1,15})"')
+CALLSIGN = re.compile(rb'<contact\b[^>]*?\bcallsign="([^"]{1,80})"')
 FRESH_MS = 120_000
 EVENT_UID = re.compile(rb'<event\b[^>]*?\buid="([^"]{1,200})"')
+DESIGNATION = re.compile(rb'<__crowdcad_unit\b[^>]*?\bdesignation="(ALS|BLS|SUP)"')
 POINT = re.compile(rb'<point\b[^>]*?\blat="(-?[0-9.]{1,20})"[^>]*?\blon="(-?[0-9.]{1,20})"')
 WATCH_REFRESH_S = 10
 
@@ -94,6 +98,8 @@ class FieldStatus:
         self.seen = {}                      # device uid → last ack `at` acted on (or skipped)
         self.heard = {}                     # device uid → ms of its last message of any kind (board "last heard")
         self.positions = {}                 # device uid → (lat, lon) of its last report with a fix (board radar)
+        self.designations = {}              # device uid → ALS / BLS / SUP from its ATAK plugin Settings
+        self.seen_supreq = {}               # device uid → last supervisor request `at` acted on
         self._watch, self._watch_at = set(), 0.0
         self.applied = 0
         self.last_error = None
@@ -115,6 +121,9 @@ class FieldStatus:
             uid = found.group(1).decode("utf-8", "replace")
             if uid in self._watched():
                 self.heard[uid] = self.now_ms()
+                designation = DESIGNATION.search(message)
+                if designation:
+                    self.designations[uid] = designation.group(1).decode()
                 point = POINT.search(message[:2000])
                 if point:
                     try:
@@ -123,6 +132,12 @@ class FieldStatus:
                         lat = lon = 0.0
                     if (lat, lon) != (0.0, 0.0) and abs(lat) <= 90 and abs(lon) <= 180:   # 0,0 = no GPS fix yet
                         self.positions[uid] = (lat, lon)
+        if SUPREQ.encode() in message:
+            try:
+                self._queue.put_nowait(message)
+            except queue.Full:
+                pass
+            return
         if ACK.encode() in message:
             try:
                 self._queue.put_nowait(message)
@@ -135,7 +150,50 @@ class FieldStatus:
 
     def _run(self):
         while True:
-            self.handle(self._queue.get())
+            message = self._queue.get()
+            try:
+                if SUPREQ.encode() in message:
+                    self.handle_supreq(message)
+                if ACK.encode() in message:
+                    self.handle(message)
+            except Exception as error:   # never let the field thread die: log and keep reading
+                self.log(f"field message not handled: {error!r}")
+
+    def handle_supreq(self, message):
+        """Request Supervisor: a GeoChat DM to every supervisor phone of the event, and a request on
+        the dispatcher's board until a dispatcher clears it. A repeated `at` (every PLI) is ignored."""
+        uid_m, at_m = EVENT_UID.search(message[:1000]), SUPREQ_AT.search(message)
+        if not uid_m or not at_m:
+            return None
+        uid, at = uid_m.group(1).decode("utf-8", "replace"), int(at_m.group(1))
+        last = self.seen_supreq.get(uid)
+        self.seen_supreq[uid] = at
+        if last == at or (last is None and self.now_ms() - at > FRESH_MS):
+            return None
+        cs_m = CALLSIGN.search(message)
+        callsign = cs_m.group(1).decode("utf-8", "replace") if cs_m else uid
+        point = POINT.search(message[:2000])
+        lat, lon = (float(point.group(1)), float(point.group(2))) if point else (0.0, 0.0)
+        bound = self.binding(uid)
+        with self.publisher.lock:
+            events = {eid: info for eid, info in self.publisher.events.items() if not info.get("ended")}
+        eid, unit = bound if bound else (next(iter(events), None), callsign)
+        if eid is None:
+            return None
+        request = {"id": f"{uid}-{at}", "event": eid, "unit": unit, "callsign": callsign, "uid": uid, "at": at,
+                   "lat": lat, "lon": lon, "cleared": False}
+        details = getattr(self.publisher, "details", None)
+        if details is not None:
+            details.add_supreq(request)
+        from . import cot   # local: cot imports nothing from here; keeps the module graph flat
+        text = f"SUPERVISOR REQUESTED by {unit} ({callsign})" + (f" at {lat:.5f}, {lon:.5f}" if point else "")
+        sent = 0
+        for team in (events.get(eid) or {}).get("device_teams") or []:
+            if team.get("supervisor") and team.get("uid") and team["uid"] != uid:
+                self.publisher.send(cot.render_chat(team["uid"], team["name"], text, f"supreq-{uid}-{at}", self.now_ms()))
+                sent += 1
+        self.log(f"supervisor request: {unit} ({callsign}) → {sent} supervisor phone(s) + dispatch")
+        return sent
 
     def binding(self, uid):
         """device uid → (event id, unit name) of a live event, or None."""
@@ -187,6 +245,10 @@ class FieldStatus:
         try:
             self.store.apply(eid, action)
             self.applied += 1
+            details = getattr(self.publisher, "details", None)
+            if details is not None:
+                # Tasked → Responding on every board, and the dispatcher's "acknowledged" banner.
+                details.put_ack(eid, report["incident"], unit, report["at"])
             if claim:
                 self.heard[report["uid"]] = self.now_ms()
                 self._watch_at = 0.0                        # watch it for "last heard" right away

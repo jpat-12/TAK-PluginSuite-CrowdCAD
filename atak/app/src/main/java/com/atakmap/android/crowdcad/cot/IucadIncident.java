@@ -45,7 +45,8 @@ public final class IucadIncident {
         return new Incident(uid, id, status, orEmpty(a.get("type")),
                 Math.max(1, Math.min(3, priority)),   // out of range is clamped (IU rule)
                 orEmpty(a.get("location")), orEmpty(a.get("reportedBy")), created, updated,
-                assigned, lat, lon, staleAt, floor(a.get("floor")), orEmpty(a.get("w3w")).trim(), ce);
+                assigned, lat, lon, staleAt, floor(a.get("floor")), orEmpty(a.get("w3w")).trim(), ce,
+                orEmpty(a.get("notes")).trim());
     }
 
     /** IU format: 1..8, -1 basement; anything else (or absent) is "none given" (0). */
