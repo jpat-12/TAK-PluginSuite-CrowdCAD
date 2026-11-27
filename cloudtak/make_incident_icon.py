@@ -3,7 +3,7 @@
     python cloudtak/make_incident_icon.py
 
 One icon for both clients: atak/app/src/main/res/drawable-nodpi/cc_incident_ems.png (the EMS
-Star of Life from svgs/…genric-ems-plain) is downscaled to 64 px and embedded as a data URL, so
+Star of Life from iconset/svgs/…genric-ems-plain) is downscaled to 64 px and embedded as a data URL, so
 the CloudTAK panel needs no asset pipeline (plugins compile inside CloudTAK's own build). The
 panel tints it by priority exactly as ATAK's IncidentStyler does (lib/incident-icon.ts).
 Re-run after changing the ATAK drawable; don't hand-edit the .ts.

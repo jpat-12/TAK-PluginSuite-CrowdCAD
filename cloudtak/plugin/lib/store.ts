@@ -1,5 +1,5 @@
 import { reactive } from 'vue';
-import type { Ack, HistoryCall, Incident, SupRequest, Unit } from './core.ts';
+import type { Ack, AlertSound, HistoryCall, Incident, SupRequest, Unit } from './core.ts';
 
 export interface NewIncidentForm {
     type: string;
@@ -32,7 +32,12 @@ interface CadState {
     newAcks: Ack[];              // not bannered yet (App.vue shows and clears them)
     boundaries: [number, number][][];   // venue outlines a dispatcher drew ([lat, lon] corners), shared via the bridge
     satellite: boolean;          // draw CloudTAK's basemap under the radar (per browser)
+    notifySound: boolean;        // tracker R36: a sound when a new notification bar appears (per browser)
     supRequests: SupRequest[];   // open Request Supervisor alerts (red banner until cleared)
+    alertSound: AlertSound;      // the phones' assignment alert (bridge setting, shared by all dispatchers)
+    // "Dispatch supervisor" on a supervisor-request bar (lib/notify.ts): the requesting unit's name;
+    // App.vue opens that unit's call with the available supervisors, then sets this back to null.
+    focus: { unit: string; at: number } | null;
 }
 
 export const store = reactive<CadState>({
@@ -50,5 +55,8 @@ export const store = reactive<CadState>({
     newAcks: [],
     boundaries: [],
     satellite: false,
+    notifySound: true,
     supRequests: [],
+    alertSound: 'soft',
+    focus: null,
 });

@@ -78,7 +78,11 @@ export interface SupRequest { id: string; unit: string; callsign: string; at: nu
 export interface Board {
     now: number; incidents: Incident[]; units: Unit[]; history?: HistoryCall[]; acks?: Ack[];
     boundaries?: [number, number][][]; supRequests?: SupRequest[];
+    alertSound?: AlertSound;   // what every phone plays when assigned (older bridges: absent = soft)
 }
+
+/** The assignment alert sound, chosen by a dispatcher for every phone (bridge alert_sound). */
+export type AlertSound = 'soft' | 'hilo';
 
 /** Black or white text, whichever reads on this background colour. */
 export function textOn(hex: string): string {

@@ -20,14 +20,6 @@
             </div>
             <button
                 class='ms-auto small px-2 me-2 iucad-who'
-                :class='{ on: showLegend }'
-                title='What the colours and symbols mean'
-                @click='showLegend = !showLegend'
-            >
-                Legend
-            </button>
-            <button
-                class='small px-2 me-2 iucad-who'
                 title='Settings: your dispatcher name, venue boundaries, radar'
                 @click='openSettings'
             >
@@ -54,72 +46,17 @@
         >
             {{ actionError }}
         </div>
-
-        <!-- Request Supervisor: red, on every screen, until a dispatcher clears it. -->
         <div
-            v-for='r in store.supRequests'
-            :key='r.id'
-            class='iucad-supreq d-flex align-items-center gap-2 px-2 py-2'
+            v-if='supNote'
+            class='px-2 py-1 iucad-warn d-flex align-items-center gap-2'
         >
-            <span class='flex-fill'>🚨 <b>{{ r.unit }}</b> ({{ r.callsign }}) requests a supervisor · {{ ago(now - r.at) }} ago</span>
-            <button
-                v-if='r.lat || r.lon'
-                class='iucad-btn'
-                @click='flyTo(r.lat, r.lon)'
-            >
-                Locate
-            </button>
+            <span class='flex-fill'>{{ supNote }}</span>
             <button
                 class='iucad-btn'
-                :disabled='busy'
-                @click='clearSupreq(r.id)'
+                @click='supNote = ""'
             >
-                Clear
+                OK
             </button>
-        </div>
-
-        <!-- Legend: every colour and symbol on the board and map, one tap away. -->
-        <div
-            v-if='showLegend'
-            class='iucad-legend px-2 py-2'
-        >
-            <div class='iucad-legend-head'>
-                Calls
-            </div>
-            <div class='d-flex flex-wrap gap-1'>
-                <span
-                    v-for='(def, code) in CALL_LEGEND'
-                    :key='code'
-                    class='iucad-chip'
-                    :style='`background:${def.color};color:${textOn(def.color)}`'
-                >{{ def.label }}</span>
-                <span class='iucad-chip iucad-history'>History (closed / cancelled)</span>
-            </div>
-            <div class='iucad-legend-head'>
-                Units
-            </div>
-            <div class='d-flex flex-wrap gap-1'>
-                <span
-                    v-for='(def, code) in UNIT_STATUS'
-                    :key='code'
-                    class='iucad-chip'
-                    :style='`background:${def.color};color:${textOn(def.color)}`'
-                >{{ def.letter }} · {{ def.label }}</span>
-            </div>
-            <div class='iucad-dim mt-1'>
-                Tasked = assigned, waiting for the medic to acknowledge. Responding unlocks with the
-                acknowledgement. A faded unit hasn't reported for 3 min.
-            </div>
-            <div class='iucad-legend-head'>
-                Map
-            </div>
-            <div class='iucad-dim'>
-                <span class='iucad-legend-line' /> unit → its call, in the unit's colour ·
-                <span class='iucad-legend-dot' /> closed call (History on) ·
-                unit icons: ALS / BLS / SUP — <b style='color:#43A047'>green</b> available,
-                <b style='color:#9E9E9E'>grey</b> out of service, <b style='color:#EF9A9A'>light red</b> busy ·
-                call icons: <b style='color:#E03131'>P1</b> / <b style='color:#F76707'>P2</b> / <b style='color:#FCC419'>P3</b>
-            </div>
         </div>
 
         <!-- ═══════════════════════════════ BOARD ═══════ -->
@@ -327,63 +264,270 @@
                 </div>
 
                 <div class='iucad-sec px-2'>
-                    Location
+                    Status
                 </div>
-                <div class='px-2'>
-                    {{ active.location }}
-                </div>
-                <div
-                    v-if='active.floor !== FLOOR_NONE'
-                    class='px-2'
-                    style='font-size:18px;font-weight:700'
-                >
-                    {{ floorLabel(active.floor) }}
-                </div>
-                <div
-                    v-if='positionWarning(active)'
-                    class='px-2 iucad-warn-text'
-                >
-                    {{ positionWarning(active) }}
-                </div>
-                <div class='px-2 iucad-dim'>
-                    {{ active.lat.toFixed(5) }}, {{ active.lon.toFixed(5) }}
-                </div>
-                <div
-                    v-if='activeWords'
-                    class='px-2 iucad-w3w'
-                >
-                    ///{{ activeWords }}
-                </div>
-
-                <div class='iucad-sec px-2'>
-                    <span>Units around it</span>
+                <div class='d-flex flex-wrap gap-1 px-2 pb-1'>
                     <button
-                        v-if='radarUnits.length'
+                        v-for='[code, label] in STATUS_ACTIONS'
+                        :key='code'
                         class='iucad-btn'
-                        @click='fitAll'
+                        :class='{ on: active.status === code, primary: code === "CLOSED" }'
+                        :disabled='busy'
+                        @click='setStatus(code)'
                     >
-                        Show all on map
+                        {{ label }}
                     </button>
                 </div>
-                <UnitRadar
-                    v-if='radarUnits.length || store.boundaries.length'
-                    :units='radarUnits'
-                    :center='active'
-                    :boundaries='store.boundaries'
-                    :satellite='store.satellite'
-                    @pick='panToUid'
-                />
-                <div
-                    v-else
-                    class='px-2 iucad-dim'
-                >
-                    No units with a GPS position yet. Draw the venue in ⚙ Settings to see it here.
+                <div class='px-2 iucad-dim'>
+                    Status also follows the medics: Respond → Dispatched, On Scene, Transporting.
                 </div>
+
+                <!-- Status first, then the radar with the location beside it (stacks when the panel is narrow). -->
+                <div class='iucad-radar-row px-2'>
+                    <div class='iucad-radar-col'>
+                        <div class='iucad-sec'>
+                            <span>Units around it</span>
+                            <button
+                                v-if='radarUnits.length'
+                                class='iucad-btn'
+                                @click='fitAll'
+                            >
+                                Show all on map
+                            </button>
+                        </div>
+                        <UnitRadar
+                            v-if='hasPosition(active) || radarUnits.length'
+                            :units='radarUnits'
+                            :center='active'
+                            :boundaries='store.boundaries'
+                            :satellite='store.satellite'
+                            @pick='panToUid'
+                        />
+                        <div
+                            v-else
+                            class='iucad-dim'
+                        >
+                            No units with a GPS position yet. Draw the venue in ⚙ Settings to see it here.
+                        </div>
+                        <div
+                            v-if='radarUnits.length'
+                            class='iucad-dim text-center'
+                        >
+                            North up · tap a unit to pan the map to it
+                        </div>
+                    </div>
+                    <div class='iucad-loc-col'>
+                        <div class='iucad-sec'>
+                            Location
+                        </div>
+                        <div>
+                            {{ active.location }}
+                        </div>
+                        <div
+                            v-if='active.floor !== FLOOR_NONE'
+                            style='font-size:18px;font-weight:700'
+                        >
+                            {{ floorLabel(active.floor) }}
+                        </div>
+                        <div
+                            v-if='positionWarning(active)'
+                            class='iucad-warn-text'
+                        >
+                            {{ positionWarning(active) }}
+                        </div>
+                        <div class='iucad-dim'>
+                            {{ active.lat.toFixed(5) }}, {{ active.lon.toFixed(5) }}
+                        </div>
+                        <div
+                            v-if='activeWords'
+                            class='iucad-w3w'
+                        >
+                            ///{{ activeWords }}
+                        </div>
+                        <div class='d-flex flex-wrap gap-1 py-1'>
+                            <button
+                                class='iucad-btn'
+                                @click='flyTo(active.lat, active.lon)'
+                            >
+                                Show on map
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Open only while a unit's Request Supervisor is being handled. -->
                 <div
-                    v-if='radarUnits.length'
-                    class='px-2 iucad-dim text-center'
+                    v-if='supPick'
+                    class='mx-2 mb-2 p-2 iucad-suppick'
                 >
-                    North up · tap a unit to pan the map to it
+                    <div class='d-flex align-items-center gap-2 mb-1'>
+                        <span class='fw-bold flex-fill'>Dispatch a supervisor · requested by {{ supPick }}</span>
+                        <button
+                            class='iucad-btn'
+                            @click='supPick = ""'
+                        >
+                            Done
+                        </button>
+                    </div>
+                    <div
+                        v-if='!availableSupervisors.length'
+                        class='iucad-dim'
+                    >
+                        No supervisors are available right now.
+                    </div>
+                    <div
+                        v-for='s in availableSupervisors'
+                        :key='s.uid'
+                        class='iucad-row'
+                    >
+                        <div class='flex-fill'>
+                            {{ s.callsign }}
+                        </div>
+                        <span
+                            v-if='active.assigned.includes(s.uid)'
+                            class='iucad-dim ms-2'
+                        >Assigned</span>
+                        <button
+                            v-else
+                            class='iucad-btn primary ms-2'
+                            :disabled='busy'
+                            @click='assign(s.uid)'
+                        >
+                            Assign
+                        </button>
+                    </div>
+                </div>
+
+                <!-- R39: Units right under the radar. Left: units on this call; right: available units,
+                     nearest first, each one tap to assign. Stacks when the panel is narrow. -->
+                <div class='iucad-units-row px-2'>
+                    <div class='iucad-units-col'>
+                        <div class='iucad-sec'>
+                            Assigned Units ({{ unitsOn(active.id).length + waiting(active).length }})
+                        </div>
+                        <div
+                            v-if='!unitsOn(active.id).length && !waiting(active).length'
+                            class='iucad-dim'
+                        >
+                            No units yet.
+                        </div>
+                        <template
+                            v-for='u in unitsOn(active.id)'
+                            :key='u.uid'
+                        >
+                            <div
+                                class='iucad-row'
+                                @click='panTo(u)'
+                            >
+                                <span
+                                    class='iucad-badge me-2'
+                                    :class='{ "iucad-stale": isStale(u) }'
+                                    :style='`background:${UNIT_STATUS[u.status].color}`'
+                                >
+                                    {{ UNIT_STATUS[u.status].letter }}
+                                </span>
+                                <div class='flex-fill'>
+                                    <div>{{ u.callsign }} · {{ UNIT_STATUS[u.status].label }} for {{ ago(now - u.since) }}</div>
+                                    <div class='iucad-dim'>
+                                        {{ describeRelative(relativeTo(active, u)) }}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class='d-flex flex-wrap gap-1 pb-2 iucad-unit-strip'>
+                                <button
+                                    v-for='code in UNIT_CODES'
+                                    :key='code'
+                                    class='iucad-btn iucad-unit-btn'
+                                    :class='{ on: u.status === code }'
+                                    :style='`border-color:${UNIT_STATUS[code].color}` + (u.status === code ? `;background:${UNIT_STATUS[code].color};color:${textOn(UNIT_STATUS[code].color)}` : "")'
+                                    :disabled='busy || u.status === code || (code === "RESP" && u.status === "TASK")'
+                                    @click='setUnitStatus(u.uid, code)'
+                                >
+                                    {{ UNIT_STATUS[code].label }}
+                                </button>
+                            </div>
+                        </template>
+                        <template
+                            v-for='uid in waiting(active)'
+                            :key='uid'
+                        >
+                            <div class='iucad-row'>
+                                <span
+                                    class='iucad-badge me-2'
+                                    style='background:#555;color:#eee'
+                                >?</span>
+                                <div
+                                    class='flex-fill'
+                                    @click='panToUid(uid)'
+                                >
+                                    <div>{{ callsignFor(uid) }} · assigned, not yet responding</div>
+                                    <div class='iucad-dim'>
+                                        {{ describeRelativeUid(uid) }}
+                                    </div>
+                                </div>
+                                <button
+                                    class='iucad-btn ms-2'
+                                    :disabled='busy'
+                                    @click='unassign(uid)'
+                                >
+                                    Unassign
+                                </button>
+                            </div>
+                            <div class='d-flex flex-wrap gap-1 pb-2 iucad-unit-strip'>
+                                <button
+                                    v-for='code in UNIT_CODES'
+                                    :key='code'
+                                    class='iucad-btn iucad-unit-btn'
+                                    :class='{ on: statusOf(uid) === code }'
+                                    :style='`border-color:${UNIT_STATUS[code].color}` + (statusOf(uid) === code ? `;background:${UNIT_STATUS[code].color};color:${textOn(UNIT_STATUS[code].color)}` : "")'
+                                    :disabled='busy || statusOf(uid) === code || (code === "RESP" && statusOf(uid) === "TASK")'
+                                    @click='setUnitStatus(uid, code)'
+                                >
+                                    {{ UNIT_STATUS[code].label }}
+                                </button>
+                            </div>
+                        </template>
+                    </div>
+                    <div class='iucad-units-col'>
+                        <div class='iucad-sec'>
+                            Available Units ({{ availableUnits.length }})
+                        </div>
+                        <div
+                            v-if='!availableUnits.length'
+                            class='iucad-dim'
+                        >
+                            No units are available right now.
+                        </div>
+                        <div
+                            v-for='c in availableUnits'
+                            :key='c.unit.uid'
+                            class='iucad-row'
+                        >
+                            <span
+                                class='iucad-badge me-2'
+                                :class='{ "iucad-stale": isStale(c.unit) }'
+                                :style='`background:${UNIT_STATUS[c.unit.status].color}`'
+                            >
+                                {{ UNIT_STATUS[c.unit.status].letter }}
+                            </span>
+                            <div
+                                class='flex-fill'
+                                @click='panTo(c.unit)'
+                            >
+                                <div>{{ c.unit.callsign }}</div>
+                                <div class='iucad-dim'>
+                                    {{ describeRelative(c.rel) }}
+                                </div>
+                            </div>
+                            <button
+                                class='iucad-btn primary ms-2'
+                                :disabled='busy'
+                                @click='assign(c.unit.uid)'
+                            >
+                                Assign
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
                 <div class='iucad-sec px-2'>
@@ -434,164 +578,6 @@
                         </button>
                     </div>
                 </template>
-                <div class='d-flex flex-wrap gap-1 px-2 py-1'>
-                    <button
-                        class='iucad-btn'
-                        @click='flyTo(active.lat, active.lon)'
-                    >
-                        Show on map
-                    </button>
-                </div>
-
-                <div class='iucad-sec px-2'>
-                    Status
-                </div>
-                <div class='d-flex flex-wrap gap-1 px-2 pb-1'>
-                    <button
-                        v-for='[code, label] in STATUS_ACTIONS'
-                        :key='code'
-                        class='iucad-btn'
-                        :class='{ on: active.status === code, primary: code === "CLOSED" }'
-                        :disabled='busy'
-                        @click='setStatus(code)'
-                    >
-                        {{ label }}
-                    </button>
-                </div>
-                <div class='px-2 iucad-dim'>
-                    Status also follows the medics: Respond → Dispatched, On Scene, Transporting.
-                </div>
-
-                <div class='iucad-sec px-2'>
-                    On this incident ({{ unitsOn(active.id).length }})
-                </div>
-                <div
-                    v-if='!unitsOn(active.id).length && !waiting(active).length'
-                    class='px-2 iucad-dim'
-                >
-                    No units yet.
-                </div>
-                <template
-                    v-for='u in unitsOn(active.id)'
-                    :key='u.uid'
-                >
-                    <div
-                        class='iucad-row px-2'
-                        @click='panTo(u)'
-                    >
-                        <span
-                            class='iucad-badge me-2'
-                            :class='{ "iucad-stale": isStale(u) }'
-                            :style='`background:${UNIT_STATUS[u.status].color}`'
-                        >
-                            {{ UNIT_STATUS[u.status].letter }}
-                        </span>
-                        <div class='flex-fill'>
-                            <div>{{ u.callsign }} · {{ UNIT_STATUS[u.status].label }} for {{ ago(now - u.since) }}</div>
-                            <div class='iucad-dim'>
-                                {{ describeRelative(relativeTo(active, u)) }}
-                            </div>
-                        </div>
-                    </div>
-                    <div class='d-flex flex-wrap gap-1 px-2 pb-2 iucad-unit-strip'>
-                        <button
-                            v-for='code in UNIT_CODES'
-                            :key='code'
-                            class='iucad-btn iucad-unit-btn'
-                            :class='{ on: u.status === code }'
-                            :style='`border-color:${UNIT_STATUS[code].color}` + (u.status === code ? `;background:${UNIT_STATUS[code].color};color:${textOn(UNIT_STATUS[code].color)}` : "")'
-                            :disabled='busy || u.status === code || (code === "RESP" && u.status === "TASK")'
-                            @click='setUnitStatus(u.uid, code)'
-                        >
-                            {{ UNIT_STATUS[code].label }}
-                        </button>
-                    </div>
-                </template>
-                <template
-                    v-for='uid in waiting(active)'
-                    :key='uid'
-                >
-                    <div class='iucad-row px-2'>
-                        <span
-                            class='iucad-badge me-2'
-                            style='background:#555;color:#eee'
-                        >?</span>
-                        <div
-                            class='flex-fill'
-                            @click='panToUid(uid)'
-                        >
-                            <div>{{ callsignFor(uid) }} · assigned, not yet responding</div>
-                            <div class='iucad-dim'>
-                                {{ describeRelativeUid(uid) }}
-                            </div>
-                        </div>
-                        <button
-                            class='iucad-btn ms-2'
-                            :disabled='busy'
-                            @click='unassign(uid)'
-                        >
-                            Unassign
-                        </button>
-                    </div>
-                    <div class='d-flex flex-wrap gap-1 px-2 pb-2 iucad-unit-strip'>
-                        <button
-                            v-for='code in UNIT_CODES'
-                            :key='code'
-                            class='iucad-btn iucad-unit-btn'
-                            :class='{ on: statusOf(uid) === code }'
-                            :style='`border-color:${UNIT_STATUS[code].color}` + (statusOf(uid) === code ? `;background:${UNIT_STATUS[code].color};color:${textOn(UNIT_STATUS[code].color)}` : "")'
-                            :disabled='busy || statusOf(uid) === code || (code === "RESP" && statusOf(uid) === "TASK")'
-                            @click='setUnitStatus(uid, code)'
-                        >
-                            {{ UNIT_STATUS[code].label }}
-                        </button>
-                    </div>
-                </template>
-
-                <div class='iucad-sec px-2'>
-                    Closest units
-                </div>
-                <div
-                    v-if='!closest.length'
-                    class='px-2 iucad-dim'
-                >
-                    No units with a GPS position.
-                </div>
-                <div
-                    v-for='c in closest'
-                    :key='c.unit.uid'
-                    class='iucad-row px-2'
-                >
-                    <span
-                        class='iucad-badge me-2'
-                        :class='{ "iucad-stale": isStale(c.unit) }'
-                        :style='`background:${UNIT_STATUS[c.unit.status].color}`'
-                    >
-                        {{ UNIT_STATUS[c.unit.status].letter }}
-                    </span>
-                    <div
-                        class='flex-fill'
-                        @click='panTo(c.unit)'
-                    >
-                        <div>{{ c.unit.callsign }}</div>
-                        <div class='iucad-dim'>
-                            {{ describeRelative(c) }} ·
-                            {{ UNIT_STATUS[c.unit.status].label }}{{ c.unit.incident ? ' ' + shortForm(c.unit.incident) : '' }}
-                        </div>
-                    </div>
-                    <span
-                        v-if='active.assigned.includes(c.unit.uid)'
-                        class='iucad-dim ms-2'
-                    >Assigned</span>
-                    <button
-                        v-else
-                        class='iucad-btn primary ms-2'
-                        :disabled='busy'
-                        @click='assign(c.unit.uid)'
-                    >
-                        Assign
-                    </button>
-                </div>
             </template>
         </template>
 
@@ -978,8 +964,39 @@
                     :checked='store.satellite'
                     @change='setSatellite(($event.target as HTMLInputElement).checked)'
                 >
-                Show the map (satellite) under the radar
+                Show the map under the radar (each call gets the map around it)
             </label>
+            <div class='iucad-sec px-2'>
+                Notifications
+            </div>
+            <label class='px-2 d-flex align-items-center gap-2'>
+                <input
+                    type='checkbox'
+                    :checked='store.notifySound'
+                    @change='setNotifySound(($event.target as HTMLInputElement).checked)'
+                >
+                Notification sound (supervisor requests and acknowledgements)
+            </label>
+            <div class='iucad-sec px-2'>
+                Assignment alert sound
+            </div>
+            <div class='px-2'>
+                <select
+                    class='form-select'
+                    :value='store.alertSound'
+                    @change='setAlertSound(($event.target as HTMLSelectElement).value as AlertSound)'
+                >
+                    <option value='soft'>
+                        Soft pulses (default)
+                    </option>
+                    <option value='hilo'>
+                        Hi-lo (more urgent)
+                    </option>
+                </select>
+                <div class='small text-secondary mt-1'>
+                    What every medic's phone plays when assigned. Reaches the phones within 30 seconds.
+                </div>
+            </div>
         </template>
 
         <!-- The visible map's centre (beside this drawer): where "Map centre" puts a new call. -->
@@ -990,14 +1007,6 @@
                 :style='`left:${crosshair.x}px;top:${crosshair.y}px`'
             />
         </Teleport>
-
-        <div
-            v-if='banner'
-            class='iucad-banner'
-            @click='banner = ""'
-        >
-            ✓ {{ banner }}
-        </div>
     </div>
 </template>
 
@@ -1006,7 +1015,7 @@ import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { IconAmbulance } from '@tabler/icons-vue';
 import UnitRadar from './UnitRadar.vue';
 import { store } from '../lib/store.ts';
-import { act, contacts, refresh, w3wAt, w3wFind, setDispatcher, setSatellite, type TakContact } from '../lib/bridge.ts';
+import { act, contacts, refresh, w3wAt, w3wFind, setDispatcher, setSatellite, setNotifySound, type TakContact } from '../lib/bridge.ts';
 import { cancelDrawing, finishDrawing, startDrawing, undoPoint } from '../lib/draw.ts';
 import { visibleCentre, visibleCentreLatLon, type ScreenPoint } from '../lib/view-centre.ts';
 import { drawHistory } from '../lib/lines.ts';
@@ -1016,8 +1025,8 @@ import {
     UNIT_STATUS, INCIDENT_STATUS, TYPES, STALE_AFTER_MS,
     FLOOR_NONE, FLOOR_BASEMENT, FLOOR_MAX,
     headline, shortForm, floorLabel, floorShort, positionWarning, textOn,
-    sortOpen, rankClosest, ago, hasPosition, relativeTo, describeRelative,
-    type Incident, type Unit, type UnitStatusCode, type Relative,
+    sortOpen, ago, hasPosition, relativeTo, describeRelative,
+    type AlertSound, type Incident, type Unit, type UnitStatusCode, type Relative,
 } from '../lib/core.ts';
 import type { NewIncidentForm } from '../lib/store.ts';
 
@@ -1081,11 +1090,6 @@ function rowStyle(color: string): string {
 }
 
 // ── Board layout, history, dispatcher name, acknowledge banner, legend ─────────────
-const showLegend = ref(false);
-// Calls in the legend: the board's row colours (closed / cancelled leave the board).
-const CALL_LEGEND = Object.fromEntries(Object.entries(INCIDENT_STATUS)
-    .filter(([code]) => code !== 'CLOSED' && code !== 'CXL')
-    .map(([code, def]) => [code, { color: def.color, label: code === 'NEW' ? 'New · no unit sent' : def.label }]));
 const COLUMNS = ['BLS', 'ALS', 'SUP'] as const;
 const unitsIn = (col: string): Unit[] => filteredUnits.value.filter(u => (u.designation || 'BLS') === col);
 const historyCalls = computed(() => store.history.slice().sort((a, b) => b.updated - a.updated));
@@ -1115,10 +1119,6 @@ function startSplit(e: PointerEvent): void {
 function toggleHistory(): void {
     store.showHistory = !store.showHistory;
     drawHistory(store.showHistory ? store.history : []);
-}
-
-async function clearSupreq(id: string): Promise<void> {
-    await run(() => act({ action: 'clear_supreq', id }));
 }
 
 // ── Settings: dispatcher callsign, venue boundaries, radar ─────────────────────────
@@ -1161,6 +1161,10 @@ async function endDraw(): Promise<void> {
     if (poly) await saveBoundaries([...store.boundaries, poly]);
 }
 
+async function setAlertSound(sound: AlertSound): Promise<void> {
+    await run(() => act({ action: 'alert_sound', sound }));
+}
+
 async function undoBoundary(): Promise<void> {
     await saveBoundaries(store.boundaries.slice(0, -1));
 }
@@ -1198,17 +1202,6 @@ function trackCentre(): void {
     window.addEventListener('resize', placeCrosshair);
 }
 
-// "Medic 1 acknowledged CC-009" across the bottom for 8 s, once per acknowledgement.
-const banner = ref('');
-let bannerTimer: ReturnType<typeof setTimeout> | undefined;
-watch(() => store.newAcks, (acks) => {
-    if (!acks.length) return;
-    banner.value = acks.map(a => a.unit + ' acknowledged ' + shortForm(a.incident) + ' (' + a.incident + ')').join(' · ');
-    store.newAcks = [];
-    clearTimeout(bannerTimer);
-    bannerTimer = setTimeout(() => { banner.value = ''; }, 8_000);
-});
-
 function toggleFilter(code: string): void {
     store.view.filter = store.view.filter === code ? null : code;
 }
@@ -1222,10 +1215,15 @@ const STATUS_ACTIONS: ['DISP' | 'ONSC' | 'TRAN' | 'CLOSED' | 'CXL', string][] = 
     ['CLOSED', 'Close'], ['CXL', 'Cancel'],
 ];
 
-const closest = computed(() => {
+// R39: available units not already on the open call, nearest first; units without a fix go last
+// (still assignable — "no position" is shown instead of a distance).
+const availableUnits = computed(() => {
     const inc = active.value;
     if (!inc) return [];
-    return rankClosest(inc, store.units.filter(u => u.status !== 'OOS' && u.incident !== inc.id)).slice(0, 8);
+    return store.units
+        .filter(u => u.status === 'AVL' && u.incident !== inc.id && !inc.assigned.includes(u.uid))
+        .map(u => ({ unit: u, rel: relativeTo(inc, u) }))
+        .sort((a, b) => (a.rel ? a.rel.meters : Infinity) - (b.rel ? b.rel.meters : Infinity));
 });
 
 // Every unit with a fix, placed around the active incident.
@@ -1265,6 +1263,37 @@ function openIncident(id: string): void {
     editingNotes.value = false;
     store.view = { screen: 'incident', incidentId: id, filter: view.value.filter };
 }
+
+// ── Dispatch supervisor (from a supervisor-request bar, lib/notify.ts) ─────────────────────────
+// store.focus names the unit that asked: open its call with the available supervisors on top.
+// Supervisors are the SUP column (bridge _designation: a CrowdCAD supervisor, or a phone set to SUP).
+const supPick = ref('');         // the requesting unit while the picker is open
+const supNote = ref('');         // "Medic 1 isn't on a call" when there's no call to open
+const availableSupervisors = computed(() =>
+    store.units.filter(u => u.designation === 'SUP' && u.status === 'AVL'));
+
+function openFocus(): void {
+    const focus = store.focus;
+    if (!focus) return;
+    store.focus = null;
+    const unit = store.units.find(u => u.callsign === focus.unit);
+    const call = unit?.incident
+        || store.incidents.find(i => unit && i.assigned.includes(unit.uid))?.id
+        || '';
+    if (call) {
+        supNote.value = '';
+        openIncident(call);
+        supPick.value = focus.unit;
+    } else {
+        supPick.value = '';
+        show('board');
+        supNote.value = `${focus.unit} isn't assigned to a call. Open a call and assign a supervisor from it.`;
+    }
+}
+// Panel already open: the watch. Panel just opened by the button: onMounted (after setup, so
+// everything openIncident/show touch exists).
+watch(() => store.focus, openFocus);
+onMounted(openFocus);
 
 // ── Units ────────────────────────────────────────────────────────────────────────
 
@@ -1536,6 +1565,11 @@ async function createIncident(): Promise<void> {
 .iucad-filter-note { font-size:12px; color:#e5e7eb; }
 .iucad-w3w { color:#E11F26; font-weight:700; }
 
+.iucad-radar-row { display:flex; flex-wrap:wrap; gap:4px 12px; align-items:flex-start; }
+.iucad-radar-col { flex:1 1 220px; min-width:0; max-width:300px; }
+.iucad-loc-col { flex:1 1 160px; min-width:0; overflow-wrap:anywhere; }
+.iucad-units-row { display:flex; flex-wrap:wrap; gap:0 12px; align-items:flex-start; }
+.iucad-units-col { flex:1 1 240px; min-width:0; }
 .iucad-sec {
     display:flex; align-items:center; justify-content:space-between;
     margin:10px 0 4px; font-size:11px; font-weight:700;
@@ -1564,10 +1598,6 @@ async function createIncident(): Promise<void> {
         linear-gradient(#00E5FF, #00E5FF) center / 100% 2px no-repeat;
     opacity:.85; filter:drop-shadow(0 0 1px #000);
 }
-.iucad-legend { background:#0b0b0b; border-bottom:1px solid #333; font-size:12px; }
-.iucad-legend-head { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#aaa; margin:6px 0 3px; }
-.iucad-legend-line { display:inline-block; width:22px; border-top:3px dashed #FFB300; vertical-align:middle; }
-.iucad-legend-dot { display:inline-block; width:10px; height:10px; border-radius:50%; background:#9E9E9E; opacity:.5; vertical-align:middle; }
 .iucad-board { display:flex; flex-direction:column; height:calc(100% - 44px); min-height:420px; }
 .iucad-pane { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
 .iucad-pane-units { flex:1; }
@@ -1621,5 +1651,10 @@ async function createIncident(): Promise<void> {
     width:calc(100% - 16px); box-sizing:border-box;
     background:#1d1d1d; color:#eee; border:1px solid #555;
     border-radius:4px; padding:8px; margin:2px 0;
+}
+.iucad-suppick {
+    border: 1px solid #b71c1c;
+    border-radius: 6px;
+    background: rgba(183, 28, 28, 0.12);
 }
 </style>

@@ -12,21 +12,31 @@
 import { std } from '../../../src/std.ts';
 import { store } from './store.ts';
 import { clearLines, drawBoundaries, drawHistory, drawLines } from './lines.ts';
-import type { Board, UnitStatusCode } from './core.ts';
+import { notify } from './notify.ts';
+import { drawUnitIcons } from './unit-icons.ts';
+import type { Ack, AlertSound, Board, UnitStatusCode } from './core.ts';
 
 const POLL_MS = 3_000;
 const DISPATCHER_KEY = 'crowdcad-dispatch:dispatcher';
 const SATELLITE_KEY = 'crowdcad-dispatch:satellite';
+const SOUND_KEY = 'crowdcad-dispatch:notify-sound';   // tracker R36
 let firstBoard = true;      // acknowledgements already on the board when the panel opens are not bannered
 
 try {
     store.dispatcher = localStorage.getItem(DISPATCHER_KEY) || '';
-    store.satellite = localStorage.getItem(SATELLITE_KEY) === '1';
+    store.satellite = localStorage.getItem(SATELLITE_KEY) !== '0';   // on unless turned off
+    store.notifySound = localStorage.getItem(SOUND_KEY) !== '0';     // on unless turned off (R36)
 } catch { /* storage blocked */ }
 
 export function setSatellite(on: boolean): void {
     store.satellite = on;
     try { localStorage.setItem(SATELLITE_KEY, on ? '1' : '0'); } catch { /* storage blocked */ }
+}
+
+/** Tracker R36: the notification-bar sound on or off, remembered per browser. */
+export function setNotifySound(on: boolean): void {
+    store.notifySound = on;
+    try { localStorage.setItem(SOUND_KEY, on ? '1' : '0'); } catch { /* storage blocked */ }
 }
 
 /** This dispatcher's name ("Dispatcher1"): sent with every action, so CrowdCAD's logs say who. */
@@ -46,17 +56,21 @@ export async function refresh(): Promise<void> {
         store.incidents.splice(0, store.incidents.length, ...b.incidents);
         store.units.splice(0, store.units.length, ...b.units);
         store.history.splice(0, store.history.length, ...(b.history ?? []));
+        store.boundaries.splice(0, store.boundaries.length, ...(b.boundaries ?? []));
+        store.supRequests.splice(0, store.supRequests.length, ...(b.supRequests ?? []));
+        store.alertSound = b.alertSound ?? 'soft';
+        const fresh: Ack[] = [];
         for (const a of b.acks ?? []) {
             const key = a.unit + '|' + a.incident + '|' + a.at;
             if (store.seenAcks[key]) continue;
             store.seenAcks[key] = true;
-            if (!firstBoard) store.newAcks.push(a);
+            if (!firstBoard) fresh.push(a);
         }
         firstBoard = false;
-        store.boundaries.splice(0, store.boundaries.length, ...(b.boundaries ?? []));
-        store.supRequests.splice(0, store.supRequests.length, ...(b.supRequests ?? []));
+        notify(store.supRequests, fresh);   // the top-of-CloudTAK bar
         drawBoundaries(store.boundaries);
         drawLines(store.incidents, store.units);
+        drawUnitIcons(store.units, b.now);
         drawHistory(store.showHistory ? store.history : []);
         store.skewMs = b.now - Date.now();
         store.conn = { ok: true, error: '', at: Date.now() };
@@ -77,7 +91,8 @@ export type Action =
     | { action: 'unit_set'; unitUid: string; status: UnitStatusCode }
     | { action: 'notes'; id: string; notes: string }
     | { action: 'boundaries'; boundaries: [number, number][][] }
-    | { action: 'clear_supreq'; id: string };
+    | { action: 'clear_supreq'; id: string }
+    | { action: 'alert_sound'; sound: AlertSound };
 
 /** Send one action; the bridge writes it to CrowdCAD and re-sends the call as CoT. Throws with its message. */
 export async function act(a: Action): Promise<string> {

@@ -6,6 +6,7 @@
 import type { GeoJSONSource } from 'maplibre-gl';
 import { getPluginApi } from './plugin-api.ts';
 import { UNIT_STATUS, hasPosition, type Incident, type Unit } from './core.ts';
+import { clearUnitIcons } from './unit-icons.ts';
 
 const SOURCE = 'plugin-crowdcad-lines';
 const LAYER = 'plugin-crowdcad-lines';
@@ -123,6 +124,7 @@ export function drawBoundaries(polys: [number, number][][]): void {
 
 /** Plugin disabled: take the lines off the map. */
 export function clearLines(): void {
+    clearUnitIcons();      // R3: CloudTAK's own contact markers back (unit-icons.ts unwraps source '-1')
     const map = getPluginApi()?.map;
     current = { type: 'FeatureCollection', features: [] };
     if (!map) return;

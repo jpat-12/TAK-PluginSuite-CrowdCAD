@@ -84,10 +84,10 @@ because the system never guesses where a patient is. Ask dispatch to move it to 
 
 Tap the **CrowdCAD** button in the ATAK toolbar. The panel shows, from top to bottom:
 
-1. **Assigned to you:** the call(s) dispatch gave your team, or *No call assigned to you*.
-2. **Open incidents:** P1 first. The border colour is the call status. A **thick border**
-   means *assigned to you*.
-3. **Units:** every team and supervisor with their status.
+1. **Your calls:** only the call(s) dispatch assigned to your phone, or *No calls assigned to
+   you*. Other open calls stay on the dispatch board and the TAK map. The border colour is the
+   call status.
+2. **Units:** every team and supervisor with their status.
 
 Tap any card to centre the map on it.
 
@@ -99,7 +99,10 @@ transporting or clear, as usual.
 
 ### When you're assigned a call
 
-1. The phone **vibrates**, shows a toast like *CrowdCAD: assigned to CC-008 — Ankle injury at
+1. The phone **sounds an alert and vibrates hard** for 5 seconds (or until you tap
+   **Acknowledge**). The alert plays on the alarm channel at full alarm volume, so a phone on
+   silent or vibrate still sounds; only Do Not Disturb set to block alarms stops it. The sound is
+   *soft pulses* unless dispatch has picked *hi-lo*. It shows a toast like *CrowdCAD: assigned to CC-008 — Ankle injury at
    Gate A*, and opens the call.
 2. Tap **Acknowledge** on the call. It changes to *Acknowledged*, and the call's log in
    CrowdCAD shows **`<your team> acknowledged the call. (via ATAK: <your callsign>)`**.
@@ -110,6 +113,19 @@ If your phone isn't linked to your team yet, set your ATAK callsign to your team
 
 > **Not getting alerts?** Your device must be mapped to your team. Ask the operator to check
 > *Teams carried by their own ATAK device* on the console page.
+
+### Testing on a debug build
+
+Debug (test) builds have a **Mute assignment alert (debug build)** button in the panel's ⚙ Settings, so
+testers aren't deafened. While it's on, the banner says **🔇 alert muted (debug)**. Release builds
+(the version medics get) don't have the button and always beep and vibrate.
+
+### Requesting a supervisor
+
+Tap the red **Request Supervisor** button and confirm. Every supervisor's phone gets a chat
+message and dispatch gets a red bar in CloudTAK. Your panel shows **Supervisor requested at
+HH:MM** while the request is open. When dispatch clears it, that line changes to
+**✓ Supervisor request acknowledged** for 1.5 minutes, so you know it was seen.
 
 ---
 
@@ -142,16 +158,42 @@ what3words are written into one `[TAK]` line of the call's notes, so CrowdCAD us
 
 ### Work a call
 
-- **Closest units** lists available units first, then by distance and walking time. Tap
-  **Assign**: the unit's phone (ATAK CrowdCAD plugin) vibrates and opens the call.
 - **Units around it**: the radar, north up. Tap a unit to fly the map to it, or **Show all on map**.
-- Each unit on the call has **Available / Responding / On Scene / Transporting / Out of Service**.
+- Right under the radar, **Assigned Units** (left) are the units on this call, and **Available
+  Units** (right) are the available units nearest first, with distance and walking time (units
+  with no GPS fix are listed last). Tap **Assign**: the unit's phone (ATAK CrowdCAD plugin)
+  vibrates and opens the call. The two lists stack when the panel is narrow.
+- Each assigned unit has **Available / Responding / On Scene / Transporting / Out of Service**.
   *Available* sends the unit back to its post; *Out of Service* also puts it On Break. If it was
   the last unit, CrowdCAD closes the call (you're asked first).
 - **Dispatched / On Scene / Transporting** set every unit on the call at once.
 - **Close** resolves the call; **Cancel** resolves it as cancelled (CrowdCAD's duplicate). Its
   units go back to their posts and the marker leaves every TAK map at once.
 - On the map, a dashed line joins each assigned unit to its call.
+
+### Supervisor requests and acknowledgements
+
+A bar across the top of CloudTAK shows each open supervisor request in red, whether or not the
+CrowdCAD panel is open:
+
+- **Dispatch supervisor** opens the panel on the call that unit is assigned to, with the
+  available supervisors (the SUP column, status available) listed on top, each with **Assign**.
+  If the unit isn't on a call, the board opens and says so.
+- **Locate** flies the map to where the request was made. **Clear** takes it off the board, and
+  the medic's phone shows *Supervisor request acknowledged*.
+- You often won't need **Clear**: when a supervisor assigned to the requesting unit's call taps
+  **Acknowledge** on their phone, the bridge clears that unit's request by itself, the same way.
+
+When a medic acknowledges a call, a green bar says so for a minute (**Locate**, **Dismiss**).
+
+### Settings (⚙)
+
+- **Your dispatcher name** (e.g. *Dispatcher1*): logged with every change you make.
+- **Venue boundaries**: draw the venue outline; it shows under each call's radar and on the map.
+- **Radar**: show the map under the radar (on by default).
+- **Assignment alert sound**: what every medic's phone plays when assigned. **Soft pulses**
+  (default) or **Hi-lo** (more urgent). Shared by all dispatchers; the phones pick up a change
+  within 30 seconds.
 
 ### Add or remove units
 
@@ -250,7 +292,7 @@ CrowdCAD button (toolbar) → panel
   OOS    Out of service    (On Break when not on a call)
 
 Assigned?  phone vibrates → call opens → tap "Respond (assigned)"
-Thick border = your call.   Tap a card = centre the map.
+The panel lists only your calls.   Tap a card = centre the map.
 ```
 
 ### Dispatcher card (CloudTAK)
@@ -259,10 +301,11 @@ Thick border = your call.   Tap a card = centre the map.
 Menu → CrowdCAD Dispatch            red row = call with no unit sent
 
 New call:  + New → Type · Priority · Location · Floor · map point · Complaint (no PHI) → Create
-Assign:    open the call → Closest units → Assign   (the phone buzzes)
+Assign:    open the call → Available Units → Assign   (the phone buzzes)
 Status:    per unit on the call: Available · Responding · On Scene · Transporting · Out of Service
 Close:     Close / Cancel → the marker leaves every map
 Units:     + Add (team/supervisor, TAK contact)  ·  ✕ removes   ·  every change logs "via CloudTAK: <you>"
+Settings:  ⚙ → name · venue boundaries · radar map · alert sound (Soft pulses / Hi-lo, every phone)
 ```
 
 ### Command card (CloudTAK / WebTAK)
