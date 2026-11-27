@@ -117,7 +117,7 @@ rm -rf "$CROWDCAD_HOME/app/crowdcad_tak"
 cp -a "$SRC/bridge/crowdcad_tak" "$CROWDCAD_HOME/app/crowdcad_tak"
 cp "$SRC/VERSION" "$CROWDCAD_HOME/app/VERSION"
 find "$CROWDCAD_HOME/app" -name __pycache__ -prune -exec rm -rf {} +
-for f in crowdcad_infratak.py crowdcad_infratak_boot.py crowdcad_infratak.pth crowdcad_caddy.py crowdcad_app.py lib.sh heal.sh uninstall.sh; do
+for f in crowdcad_infratak.py crowdcad_infratak_boot.py crowdcad_infratak.pth crowdcad_caddy.py crowdcad_app.py lib.sh heal.sh uninstall.sh \n         crowdcad_cloudtak_job.sh; do   # the last one runs the console's CloudTAK install button (R41)
     install -m 0755 "$SRC/infratak/$f" "$CROWDCAD_HOME/bin/$f"
 done
 mkdir -p "$CROWDCAD_HOME/bin/pb_hooks"

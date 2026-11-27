@@ -37,7 +37,27 @@ means infra-TAK's CloudTAK updates (`git pull --autostash`) leave the settings a
 
 ---
 
-## Install with the bridge installer (recommended)
+## Install from the infra-TAK console (recommended, tracker R41)
+
+infra-TAK console → **CrowdCAD** → **Install CloudTAK plugin**. Leave *CloudTAK directory* blank to
+use the running CloudTAK, or give its path (e.g. `/root/CloudTAK`). A progress bar then follows the
+job step by step:
+
+| Step | What happens |
+|---|---|
+| Backup | The installed plugin and server route are saved to `/opt/crowdcad-tak/backups/cloudtak-crowdcad-<time>.tgz` |
+| Copy | The new plugin, server route and settings (`api/.env`) go in |
+| Rebuild | `docker compose build --no-cache api`, 5–15 min. The bar follows the build's own steps |
+| Restart | `docker compose up -d --force-recreate api`. CloudTAK is unreachable for about 30 s (502s) |
+| Health check | Waits for CloudTAK's API to answer again (up to 3 min) |
+
+The job runs as the transient systemd unit `crowdcad-cloudtak-install`, so it keeps going if the
+console restarts. Only one runs at a time, and its full log is in
+`/opt/crowdcad-tak/data/cloudtak-install.log`. When it says **Done**, in each browser: CloudTAK →
+**Settings → Refresh App**. The button stays disabled until the bridge's board is published (the
+server install did that).
+
+## Install with the bridge installer
 
 On the infra-TAK host that also runs CloudTAK:
 

@@ -22,6 +22,27 @@ Never paste real tokens or passwords into a doc, ticket or chat.
 
 ---
 
+## Quick install: one command (tracker R41)
+
+On the infra-TAK host, as root. This installs **CrowdCAD and the bridge** together, working: CrowdCAD
+in Docker at `crowdcad.<fqdn>`, the bridge service, its TAK certificate and group, the Caddy
+routes and the console's **CrowdCAD** page. The repo is private, so `git` asks for a GitHub
+login (or uses your token or SSH key).
+
+```bash
+sudo git clone -b dev https://github.com/jpat-12/TAK-PluginSuite-CrowdCAD.git /opt/crowdcad-tak/src   && sudo bash /opt/crowdcad-tak/src/install.sh --tak-group <TAK group>
+```
+
+Then add the **CloudTAK plugin** from the console: infra-TAK → **CrowdCAD** → **Install CloudTAK
+plugin**. A progress bar follows the backup, copy, 5–15 min rebuild and health check. To update
+everything later, run `sudo bash /opt/crowdcad-tak/src/install.sh` again (it pulls first). Options
+of its own: `--no-crowdcad` / `--crowdcad-url URL` (you already run CrowdCAD), `--no-pull`,
+`--ref BRANCH|TAG`; every [`infratak/install.sh`](../../infratak/install.sh) option passes through.
+
+The guides below are for installing each piece on its own or by hand.
+
+---
+
 ## Install order
 
 1. **CrowdCAD** must exist first, on its **PocketBase** backend (Firebase has no API the bridge

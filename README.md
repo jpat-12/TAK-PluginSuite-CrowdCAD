@@ -320,6 +320,7 @@ After a wire-format change, regenerate the ATAK fixture: `python bridge/tests/ma
 
 ```
 VERSION                         one version for bridge, APK, CloudTAK + WebTAK plugins (PATCH-bump per build)
+install.sh                      one-command server install: pull, then CrowdCAD + bridge (R41)
 docs/
   COT_FORMAT.md                 what goes on the wire: CrowdCAD field → CoT attribute, send rules, PHI rule
   API.md                        the read-only board API the web clients build against
@@ -351,6 +352,7 @@ infratak/                       infra-TAK integration (never edits infra-TAK's t
                                 (+ the crowdcad.<fqdn> app site with --with-crowdcad)
   crowdcad_app.py               --with-crowdcad: build/run CrowdCAD + PocketBase (Docker), accounts, add-user
   lib.sh, heal.sh, systemd/     shared shell; re-apply after Caddyfile rewrites / "Update Now"; units
+  crowdcad_cloudtak_job.sh      the console's "Install CloudTAK plugin" job (progress-bar log, R41)
 atak/                           ATAK plugin (Java, ATAK-CIV 5.6 or 5.7 SDK via atak.version, no network permission)
   app/src/main/java/com/atakmap/android/crowdcad/
     CrowdCadMapComponent.java   owns the board, CoT handlers, ack reporter, icons, panel; assignment alert

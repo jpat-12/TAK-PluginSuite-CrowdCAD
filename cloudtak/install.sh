@@ -17,6 +17,7 @@
 #   CROWDCAD_TAK_URL=https://crowdcad-tak.example.org CROWDCAD_TAK_TOKEN=… ./install.sh [/path/to/CloudTAK]   (default: found from the running cloudtak-api-1 container)
 #   ./install.sh --remove [/path/to/CloudTAK]
 #   add --no-build to copy/remove files without rebuilding the CloudTAK containers
+#   add --backup DIR to tar the installed plugin + route into DIR before replacing them (R41)
 #
 # Requires: bash, python3, and (unless --no-build) docker compose.
 
@@ -24,11 +25,12 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NAME="crowdcad"
-ACTION="install"; DO_BUILD=1; CT_DIR=""
+ACTION="install"; DO_BUILD=1; CT_DIR=""; BACKUP_DIR=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --remove)   ACTION="remove" ;;
         --no-build) DO_BUILD=0 ;;
+        --backup)   shift; BACKUP_DIR="${1:?--backup needs a directory}" ;;
         -h|--help)  sed -n '/^# Usage:/,/^# Requires:/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*)         echo "Unknown option: $1" >&2; exit 2 ;;
         *)          CT_DIR="$1" ;;
@@ -84,6 +86,20 @@ os.umask(old)
 PYEOF
 }
 
+# Optional backup of what's installed now (the console's install job always asks for one, R41).
+if [ -n "$BACKUP_DIR" ]; then
+    existing=()
+    for p in "$WEB_DEST" "$ROUTE_DEST"; do [ -e "$p" ] && existing+=("${p#"$CT_DIR"/}"); done
+    if [ "${#existing[@]}" -gt 0 ]; then
+        mkdir -p "$BACKUP_DIR"
+        archive="$BACKUP_DIR/cloudtak-crowdcad-$(date -u +%Y%m%dT%H%M%SZ).tgz"
+        tar -czf "$archive" -C "$CT_DIR" "${existing[@]}"
+        echo "==> Backed up the installed plugin → $archive"
+    else
+        echo "==> Nothing to back up (plugin not installed yet)"
+    fi
+fi
+
 if [ "$ACTION" = "install" ]; then
     : "${CROWDCAD_TAK_URL:?set CROWDCAD_TAK_URL (e.g. https://crowdcad-tak.example.org)}"
     : "${CROWDCAD_TAK_TOKEN:?set CROWDCAD_TAK_TOKEN (board_token from /opt/crowdcad-tak/data/secrets.json)}"
@@ -107,6 +123,8 @@ if [ "$DO_BUILD" -eq 1 ]; then
     # Same two steps infra-TAK's own CloudTAK plugin installer runs; --no-cache so the Vite
     # bundle can't come from a layer cached before the plugin files changed.
     echo "==> Rebuilding the CloudTAK API image (5–15 min; the build also lint/type-checks the plugin)"
-    (cd "$CT_DIR" && docker compose build --no-cache api && docker compose up -d --force-recreate api)
+    (cd "$CT_DIR" && docker compose build --no-cache api)
+    echo "==> Restarting the CloudTAK API container (CloudTAK is unreachable for ~30 s)"
+    (cd "$CT_DIR" && docker compose up -d --force-recreate api)
     echo "==> Done. In the browser: CloudTAK → Settings → Refresh App (a hard refresh is not enough)."
 fi

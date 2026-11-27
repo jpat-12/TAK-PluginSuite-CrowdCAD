@@ -93,6 +93,16 @@ Tick every line before you install.
 
 ## Step 2: Install the bridge
 
+**Quickest: one command** (tracker R41). It installs CrowdCAD on this host *and* the bridge, which
+is Option B below in one line, and it updates the code first on later runs:
+
+```bash
+sudo git clone -b dev https://github.com/jpat-12/TAK-PluginSuite-CrowdCAD.git /opt/crowdcad-tak/src   && sudo bash /opt/crowdcad-tak/src/install.sh --tak-group MEDICAL
+```
+
+Already run CrowdCAD somewhere else? Add `--crowdcad-url https://your-crowdcad` to that command,
+which is Option A. To do it step by step instead, read on.
+
 Copy the repository onto the infra-TAK host. It is private, so use a deploy key or a personal
 access token, or copy the folder with `scp`:
 
@@ -211,8 +221,11 @@ Quick end-to-end test with a practice event:
 
 ## Step 5: Add the web clients (CloudTAK, WebTAK)
 
-Skip this step if no one will use CloudTAK or WebTAK. Re-run the installer with the clients
-you want:
+Skip this step if no one will use CloudTAK or WebTAK.
+
+**CloudTAK, from the console (easiest):** infra-TAK → **CrowdCAD** → **Install CloudTAK plugin**.
+A progress bar shows the backup, copy, rebuild (5–15 min) and health check. When it says
+**Done**, go on to *Refresh App* below. Or re-run the installer with the clients you want:
 
 ```bash
 sudo bash TAK-PluginSuite-CrowdCAD/infratak/install.sh --tak-group MEDICAL --cloudtak --webtak

@@ -28,6 +28,17 @@ what the installer does, every setting, and how to install by hand.
 
 ## Install on infra-TAK (recommended)
 
+**One command (tracker R41)** — CrowdCAD and the bridge together, as root on the infra-TAK host:
+
+```bash
+sudo git clone -b dev https://github.com/jpat-12/TAK-PluginSuite-CrowdCAD.git /opt/crowdcad-tak/src   && sudo bash /opt/crowdcad-tak/src/install.sh --tak-group <TAK group>
+```
+
+[`install.sh`](../../install.sh) at the repo root updates the checkout (`git pull --ff-only`), then
+runs `infratak/install.sh --with-crowdcad` plus whatever you pass. Re-run it to update. Already run
+CrowdCAD elsewhere? Add `--crowdcad-url https://…` (or `--no-crowdcad`) and it installs the bridge
+only. The steps below are the same install, done one piece at a time.
+
 1. **Get the code onto the host.** The repo is private: use a deploy key or a personal access
    token, or copy the folder with `scp`.
 

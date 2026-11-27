@@ -3,7 +3,8 @@
 attach() receives the console's freshly loaded `app` module and adds, *if the hook point
 exists in this version*:
 
-    app + login_required  →  /crowdcad: bridge status, unplaced calls/teams, settings form
+    app + login_required  →  /crowdcad: bridge status, unplaced calls/teams, settings form, and the
+                             "Install CloudTAK plugin" button with its progress bar (tracker R41)
     detect_modules        →  a "CrowdCAD" module card on the console dashboard
     render_sidebar        →  a "CrowdCAD" link in the left nav
 
@@ -16,6 +17,9 @@ console hands us. The console runs as root, which is how it can write the bridge
 import html
 import json
 import os
+import re
+import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -244,6 +248,185 @@ server config and the WebTAK bundle (<code>install.sh --cloudtak --webtak</code>
 <code>board_token</code> from /opt/crowdcad-tak/data/secrets.json and re-run that command.</div></details></div>"""
 
 
+# --- "Install CloudTAK plugin" button (tracker R41) ------------------------------------------
+# The job is bin/crowdcad_cloudtak_job.sh in a transient systemd unit (so a 5–15 min CloudTAK
+# rebuild survives the console restarting); it writes data/cloudtak-install.log, and the
+# progress bar is drawn from that log's "==> " marker lines. The unit name doubles as the
+# one-job-at-a-time lock.
+
+JOB_UNIT = "crowdcad-cloudtak-install"
+_job_proc = {"p": None}      # fallback when there's no systemd-run (dev boxes); never on infra-TAK
+
+# (step key, label, percent when reached, marker prefixes) — keep in step with the job script header.
+_PROGRESS_STEPS = [
+    ("start", "Starting", 2, ("==> Job started",)),
+    ("detect", "Found CloudTAK", 8, ("==> CloudTAK ",)),
+    ("backup", "Backed up the current plugin", 15, ("==> Backed up", "==> Nothing to back up")),
+    ("copy", "Plugin files copied", 25, ("==> Installed web half",)),
+    ("build", "Rebuilding CloudTAK (5–15 min)", 30, ("==> Rebuilding",)),
+    ("restart", "Restarting CloudTAK", 88, ("==> Restarting",)),
+    ("health", "Checking CloudTAK is back up", 92, ("==> Done",)),
+    ("healthy", "Installed — CloudTAK is up", 100, ("==> Healthy",)),
+]
+_BUILD_FROM, _BUILD_TO = 30, 86
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+_BUILD_STEP = re.compile(r"\[(?:[\w.-]+ )?\s*(\d+)/(\d+)\]")
+_EXIT = re.compile(r"^==> EXIT (\d+)")
+
+
+def _job_log():
+    return os.path.join(DATA_DIR, "cloudtak-install.log")
+
+
+def _job_active():
+    """Is an install job running right now? Asked only while the log has no EXIT line."""
+    proc = _job_proc["p"]
+    if proc is not None and proc.poll() is None:
+        return True
+    if shutil.which("systemctl"):
+        return subprocess.run(["systemctl", "is-active", "--quiet", JOB_UNIT],
+                              capture_output=True, timeout=10).returncode == 0
+    return False
+
+
+def _parse_progress(text, active):
+    """Log text → {state: idle|running|done|failed, step, label, percent, error, tail}. Pure."""
+    if text is None:
+        return {"state": "idle", "step": None, "label": "", "percent": 0, "error": "", "tail": []}
+    lines = [_ANSI.sub("", raw).rstrip("\r") for raw in text.splitlines()]
+    step, label, percent, building, exit_code, error = None, "", 0, False, None, ""
+    for line in lines:
+        for key, text_label, pct, markers in _PROGRESS_STEPS:
+            if line.startswith(markers):
+                step, label, percent = key, text_label, max(percent, pct)
+                building = key == "build"
+        if building:
+            match = _BUILD_STEP.search(line)
+            if match and int(match.group(2)) > 0:
+                done, total = int(match.group(1)), int(match.group(2))
+                within = _BUILD_FROM + (_BUILD_TO - _BUILD_FROM) * min(done, total) / total
+                percent = max(percent, int(within))
+                label = f"Rebuilding CloudTAK — build step {done} of {total}"
+        if line.startswith("==> ERROR"):
+            error = line[len("==> ERROR"):].strip()
+        match = _EXIT.match(line)
+        if match:
+            exit_code = int(match.group(1))
+    tail = [line for line in lines if line.strip()][-40:]
+    if exit_code == 0:
+        state, percent, label = "done", 100, "Installed — CloudTAK is up"
+    elif exit_code is not None:
+        state = "failed"
+        error = error or next((line for line in reversed(tail) if not line.startswith("==> EXIT")), "failed")
+    elif active:
+        state = "running"
+    else:
+        state, error = "failed", "the install job stopped without finishing (see the log below)"
+    return {"state": state, "step": step, "label": label, "percent": min(percent, 100),
+            "error": error, "tail": tail}
+
+
+def _cloudtak_status():
+    try:
+        with open(_job_log(), encoding="utf-8", errors="replace") as stream:
+            text = stream.read()
+    except OSError:
+        text = None
+    active = False
+    if text is not None and not any(_EXIT.match(line) for line in text.splitlines()):
+        active = _job_active()
+    return _parse_progress(text, active)
+
+
+_SAFE_DIR = re.compile(r"^/[A-Za-z0-9._/-]+$")
+
+
+def _start_job(ct_dir):
+    """Start the install job. → None, or the reason it wasn't started."""
+    if _cloudtak_status()["state"] == "running":
+        return "An install is already running."
+    script = os.path.join(HOME, "bin", "crowdcad_cloudtak_job.sh")
+    log = _job_log()
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(log, "w", encoding="utf-8") as stream:
+        stream.write("==> Queued from the infra-TAK console\n")
+    command = f"exec /bin/bash {shlex.quote(script)}"
+    if ct_dir:
+        command += f" {shlex.quote(ct_dir)}"
+    command += f" >> {shlex.quote(log)} 2>&1"
+    if shutil.which("systemd-run"):
+        result = subprocess.run(["systemd-run", "--unit", JOB_UNIT, "--collect", "--quiet",
+                                 f"--setenv=CROWDCAD_HOME={HOME}", "/bin/bash", "-c", command],
+                                capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            message = (result.stderr or result.stdout or "systemd-run failed").strip()
+            with open(log, "a", encoding="utf-8") as stream:
+                stream.write(f"==> ERROR couldn't start the job: {message}\n==> EXIT 1\n")
+            return f"Couldn't start the install job: {message}"
+    else:
+        _job_proc["p"] = subprocess.Popen(["/bin/bash", "-c", command], start_new_session=True,
+                                          env={**os.environ, "CROWDCAD_HOME": HOME})
+    _log(f"CloudTAK plugin install started{' for ' + ct_dir if ct_dir else ''}")
+    return None
+
+
+def _cloudtak_html(cfg, secrets):
+    ready = bool(cfg.get("public_url") and secrets.get("board_token"))
+    status = _cloudtak_status()
+    initial = json.dumps(status).replace("<", "\\u003c")   # safe inside <script>; outside the f-string (py3.10)
+    why = "" if ready else ('<div class="banner warn">The board isn\'t published yet (no public URL or board '
+                            'token) — run the server install first.</div>')
+    return f"""<div class="card" id="cc-cloudtak"><h2>CloudTAK plugin</h2>{why}
+<div class="dim">Installs CrowdCAD Dispatch into the CloudTAK on this host: backs up the current plugin,
+copies the new one in, rebuilds CloudTAK (5–15 min; CloudTAK is down for about 30 s at the end) and checks
+it came back. Then, in each browser: CloudTAK → Settings → Refresh App.</div>
+<form id="cc-ct-form" onsubmit="return ccStart(event)">
+<label>CloudTAK directory (blank = the running CloudTAK)</label>
+<input type="text" name="cloudtak_dir" value="{E(cfg.get('cloudtak_dir') or '')}" placeholder="/root/CloudTAK">
+<button class="btn" id="cc-ct-btn" type="submit"{'' if ready else ' disabled'}>Install CloudTAK plugin</button></form>
+<div id="cc-ct-progress" style="margin-top:16px;display:none">
+<div class="label" id="cc-ct-label"></div>
+<div style="background:#0a0e1a;border-radius:6px;height:12px;overflow:hidden;margin:6px 0">
+<div id="cc-ct-bar" style="height:100%;width:0;background:var(--cyan);transition:width .6s"></div></div>
+<div class="dim" id="cc-ct-error" style="color:var(--red)"></div>
+<details class="dim"><summary>Install log</summary><pre id="cc-ct-log" style="white-space:pre-wrap;font-size:11px;max-height:260px;overflow:auto"></pre></details>
+</div></div>
+<script>
+const ccInitial = {initial};
+let ccTimer = null;
+function ccShow(s) {{
+  const box = document.getElementById('cc-ct-progress');
+  if (s.state === 'idle') {{ box.style.display = 'none'; return; }}
+  box.style.display = 'block';
+  const bar = document.getElementById('cc-ct-bar');
+  bar.style.width = s.percent + '%';
+  bar.style.background = s.state === 'failed' ? 'var(--red)' : s.state === 'done' ? 'var(--green)' : 'var(--cyan)';
+  document.getElementById('cc-ct-label').textContent =
+    (s.state === 'failed' ? 'Failed' : s.state === 'done' ? 'Done' : 'Installing') + ' · ' + (s.label || '…') + ' · ' + s.percent + '%';
+  document.getElementById('cc-ct-error').textContent = s.state === 'failed' ? s.error : '';
+  document.getElementById('cc-ct-log').textContent = (s.tail || []).join('\\n');
+  const running = s.state === 'running';
+  document.getElementById('cc-ct-btn').disabled = running || {'false' if ready else 'true'};
+  if (running && !ccTimer) ccTimer = setInterval(ccPoll, 2000);
+  if (!running && ccTimer) {{ clearInterval(ccTimer); ccTimer = null; }}
+}}
+async function ccPoll() {{
+  try {{ ccShow(await (await fetch('/crowdcad/cloudtak/status', {{credentials: 'same-origin'}})).json()); }}
+  catch (e) {{ document.getElementById('cc-ct-label').textContent = 'Status unavailable — retrying…'; }}
+}}
+async function ccStart(event) {{
+  event.preventDefault();
+  document.getElementById('cc-ct-btn').disabled = true;
+  const r = await fetch('/crowdcad/cloudtak/install', {{method: 'POST', credentials: 'same-origin',
+    body: new FormData(document.getElementById('cc-ct-form'))}});
+  const body = await r.json().catch(() => ({{}}));
+  if (!r.ok) {{ ccShow({{state: 'failed', percent: 0, label: '', error: body.error || ('HTTP ' + r.status), tail: []}}); return false; }}
+  ccShow(body.status); ccPoll(); return false;
+}}
+ccShow(ccInitial);
+</script>"""
+
+
 def _parse_settings(form, cfg, secrets):
     """→ (config, secrets, error). Validates before anything is written."""
     cfg = dict(cfg)
@@ -293,7 +476,7 @@ def _register_routes(g):
     app, login_required = g["app"], g["login_required"]
     if "crowdcad_console_page" in app.view_functions:
         return
-    from flask import redirect, request
+    from flask import jsonify, redirect, request
 
     def render(saved=False, error=None):
         installed, running, detail = _service_status(fresh=True)
@@ -309,16 +492,40 @@ def _register_routes(g):
         return (HEAD + sidebar + '<div class="main"><h1>CrowdCAD for TAK</h1>'
                 '<div class="sub">CrowdCAD event-medical dispatch on the TAK map: calls, teams and venue zones, '
                 'live, in IU Event CAD\'s CoT format.</div>' + problem + _status_html(installed, running, detail)
-                + _settings_html(cfg, secrets, saved) + "</div></body></html>")
+                + _settings_html(cfg, secrets, saved) + _cloudtak_html(cfg, secrets) + "</div></body></html>")
 
     def page():
         return render(saved=request.args.get("saved") == "1")
 
-    def save():
+    def cross_origin():
         # Same-origin only (the console's own CSRF baseline, re-checked here because older
         # infra-TAK versions don't apply it to non-/api routes).
         origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
-        if origin and urllib.parse.urlsplit(origin).netloc != request.host:
+        return bool(origin) and urllib.parse.urlsplit(origin).netloc != request.host
+
+    def cloudtak_install():
+        if cross_origin():
+            return jsonify(error="Cross-origin request refused"), 403
+        cfg = _read_json(os.path.join(DATA_DIR, "config.json"))
+        secrets = _read_json(os.path.join(DATA_DIR, "secrets.json"))
+        if not (cfg.get("public_url") and secrets.get("board_token")):
+            return jsonify(error="The board isn't published yet — run the server install first."), 400
+        ct_dir = request.form.get("cloudtak_dir", "").strip().rstrip("/")
+        if ct_dir and (not _SAFE_DIR.match(ct_dir) or ".." in ct_dir.split("/")):
+            return jsonify(error="CloudTAK directory must be an absolute path like /root/CloudTAK"), 400
+        if ct_dir != (cfg.get("cloudtak_dir") or ""):
+            cfg["cloudtak_dir"] = ct_dir
+            _write_json(os.path.join(DATA_DIR, "config.json"), cfg, 0o640)
+        problem = _start_job(ct_dir)
+        if problem:
+            return jsonify(error=problem, status=_cloudtak_status()), 409
+        return jsonify(ok=True, status=_cloudtak_status())
+
+    def cloudtak_status():
+        return jsonify(_cloudtak_status())
+
+    def save():
+        if cross_origin():
             return "Cross-origin request refused", 403
         cfg = _read_json(os.path.join(DATA_DIR, "config.json"))
         secrets = _read_json(os.path.join(DATA_DIR, "secrets.json"))
@@ -334,6 +541,9 @@ def _register_routes(g):
 
     app.add_url_rule("/crowdcad", "crowdcad_console_page", login_required(page))
     app.add_url_rule("/crowdcad/settings", "crowdcad_console_settings", login_required(save), methods=["POST"])
+    app.add_url_rule("/crowdcad/cloudtak/install", "crowdcad_console_cloudtak_install",
+                     login_required(cloudtak_install), methods=["POST"])
+    app.add_url_rule("/crowdcad/cloudtak/status", "crowdcad_console_cloudtak_status", login_required(cloudtak_status))
 
 
 def attach(module):
