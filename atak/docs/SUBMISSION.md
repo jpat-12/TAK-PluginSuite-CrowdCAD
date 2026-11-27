@@ -4,11 +4,11 @@
 |---|---|
 | Plugin name | CrowdCAD |
 | Package / namespace | `com.atakmap.android.crowdcad.plugin` (civ, mil); gov adds `.gov` |
-| Plugin version | see `VERSION`. versionName `<VERSION>+atak5.6`, versionCode `MAJ*1e6 + MIN*1e4 + PATCH*100 + 6` |
-| Target ATAK | 5.6.0 (`plugin-api` = `com.atakmap.app@5.6.0.CIV`) |
+| Plugin version | see `VERSION`. versionName `<VERSION>+atak<ATAK major.minor>` (e.g. `1.0.0+atak5.8`), versionCode `MAJ*1e6 + MIN*1e4 + PATCH*100 + <ATAK minor>` |
+| Target ATAK | one zip per ATAK: 5.6.0 or 5.8.0, set by the `atak.version` default in `app/build.gradle` (`plugin-api` = `com.atakmap.app@<ATAK>.CIV`) |
 | Flavors | civ (default), mil, gov |
 | Build | `./gradlew assembleCivRelease` (JDK 17, Gradle wrapper 8.13, AGP 8.9.0, takdev 3.+) |
-| Unit tests | `./gradlew testCivDebugUnitTest`: 11 JVM tests (parsers, board rules, priority colours, iconset header, real bridge output) |
+| Unit tests | `./gradlew testCivDebugUnitTest`: 19 JVM tests (parsers, board rules, priority colours, iconset header, real bridge output, release builds always alert) |
 | Obfuscation | R8, `-repackageclasses atakplugin.CrowdCadTAK` (generated from `rootProject.name`) |
 | Runtime dependencies | none; ATAK supplies the API (compileOnly). Test-only: JUnit 4.13.2, org.json 20240303 |
 | Native code | none |
