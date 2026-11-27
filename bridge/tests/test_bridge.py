@@ -164,11 +164,35 @@ class PublisherTest(unittest.TestCase):
         self.assertEqual(len(roster), 1)
         units = {u.get("uid"): (u.get("status"), u.get("name")) for u in roster[0].iter("unit")}
         self.assertEqual(units, {"ANDROID-t3": ("RESP", "Team 3")})
+        self.assertEqual(roster[0].find("detail/__crowdcad_roster").get("alert"), "soft")   # default sound
         sent.clear()
         pub.apply(demo())                                          # unchanged: not re-sent
         self.assertFalse(any("roster" in m for m in sent))
         pub.heartbeat()                                            # but refreshed with the heartbeat
         self.assertTrue(any("t-x-crowdcad-roster" in m for m in sent))
+
+    def test_roster_carries_open_supervisor_request_until_cleared(self):
+        from crowdcad_tak.calldetails import CallDetails
+        details, sent, clock = CallDetails(), [], Clock()
+        pub = Publisher({**config.DEFAULTS, "team_uids": {"Team 3": "ANDROID-t3"}}, sent.append, clock,
+                        details=details)
+        pub.apply(demo())
+
+        def last_unit():
+            rosters = [ET.fromstring(m) for m in sent if "t-x-crowdcad-roster" in m]
+            return next(rosters[-1].iter("unit"))
+
+        self.assertIsNone(last_unit().get("supreq"))
+        sent.clear()
+        at = clock.ms - 5000
+        details.add_supreq({"id": f"ANDROID-t3-{at}", "event": EID, "unit": "Team 3", "callsign": "Medic1",
+                            "uid": "ANDROID-t3", "at": at, "lat": 0.0, "lon": 0.0, "cleared": False})
+        self.assertEqual(last_unit().get("supreq"), str(at))        # re-sent at once, not on the heartbeat
+        sent.clear()
+        details.clear_supreq(f"ANDROID-t3-{at}")
+        self.assertIsNone(last_unit().get("supreq"))                # cleared: the phone shows it was seen
+        details.add_supreq({"id": "old", "uid": "ANDROID-t3", "at": clock.ms - 2 * 3600_000, "cleared": False})
+        self.assertIsNone(last_unit().get("supreq"))                # over an hour old: no longer open
 
     def test_delete_can_be_switched_off(self):
         pub, sent, clock = publisher(delete_closed=False)

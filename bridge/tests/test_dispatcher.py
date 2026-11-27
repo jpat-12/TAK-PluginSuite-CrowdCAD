@@ -193,6 +193,23 @@ class ActionTest(Setup):
         self.d.act({"action": "boundaries", "boundaries": []}, "jon")       # cleared
         self.assertEqual(self.d.board(NOW)["boundaries"], [])
 
+    def test_alert_sound_is_a_dispatcher_setting_carried_on_the_roster(self):
+        import xml.etree.ElementTree as ET
+        self.assertEqual(self.d.board(NOW)["alertSound"], "soft")             # default: soft pulses
+        sent = []
+        self.pub.send = sent.append
+        self.d.act({"action": "alert_sound", "sound": "hilo"}, "jon")
+        self.assertEqual(self.d.board(NOW)["alertSound"], "hilo")
+        self.pub.heartbeat()                                                 # phones hear it within one heartbeat
+        rosters = [ET.fromstring(m) for m in sent if "t-x-crowdcad-roster" in m]
+        self.assertTrue(rosters)
+        self.assertEqual(rosters[-1].find("detail/__crowdcad_roster").get("alert"), "hilo")
+        for bad in ("loud", "", None, 3):
+            with self.assertRaises(manage.ManageError, msg=bad) as error:
+                self.d.act({"action": "alert_sound", "sound": bad}, "jon")
+            self.assertEqual(error.exception.status, 400)
+        self.assertEqual(self.d.board(NOW)["alertSound"], "hilo")             # refused values change nothing
+
     def test_supervisor_request_chats_supervisors_and_waits_on_the_board(self):
         from crowdcad_tak import fieldstatus
         ev = self.record()
@@ -205,8 +222,8 @@ class ActionTest(Setup):
                b'<contact callsign="MEDIC3"/><__crowdcad_supreq at="' + str(NOW - 500).encode() + b'"/></detail></event>')
         self.assertEqual(field.handle_supreq(msg), 1)
         self.assertIsNone(field.handle_supreq(msg))                          # same tap on the next PLI: ignored
-        chat = sent[0]
-        self.assertIn('type="b-t-f"', chat)
+        chat = next(m for m in sent if 'type="b-t-f"' in m)
+        self.assertTrue(any("t-x-crowdcad-roster" in m and 'supreq="' in m for m in sent))   # phone told at once
         self.assertIn('<dest uid="ANDROID-sup1"', chat)
         self.assertIn("SUPERVISOR REQUESTED by Team 3 (MEDIC3)", chat)
         reqs = self.d.board(NOW)["supRequests"]

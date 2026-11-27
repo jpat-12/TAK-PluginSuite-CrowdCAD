@@ -21,6 +21,8 @@ compare-and-swap through store.py like every other TAK dispatch:
                               optionally carried by a TAK contact's device (takUid)
     remove_unit {unitUid}     handleDeleteTeam / handleDeleteSupervisor: gone from the event, off
                               any open call (Pending if it was the last unit)
+    alert_sound {sound}       soft | hilo: the assignment alert every phone plays (bridge setting,
+                              sent to ATAK in the roster CoT; not a CrowdCAD write)
     create    {incident}      Add Call (quickcallmodal) + TAK details: the point goes into CrowdCAD's
                               `location` as "lat, lon"; place, floor, what3words into the [TAK]
                               notes line (calldetails.py)
@@ -33,6 +35,8 @@ is filled with the TAK description, never CrowdCAD's notes.
 import copy
 
 from . import mapping
+from .calldetails import SUPREQ_OPEN_MS
+from .cot import ALERT_SOUNDS
 from .dispatch import Clock, DispatchError, _find_call, _find_unit, _replace, _via, add_supervisor, add_team
 from .manage import ManageError
 
@@ -81,10 +85,10 @@ def clean_boundaries(polygons):
     return out
 
 
-SUPREQ_SHOW_MS = 60 * 60_000     # an uncleared supervisor request stays on the board this long
+SUPREQ_SHOW_MS = SUPREQ_OPEN_MS  # an uncleared supervisor request stays on the board this long
 
 
-def board(board_data, now_ms, acks=None, boundaries=None, supreqs=None):
+def board(board_data, now_ms, acks=None, boundaries=None, supreqs=None, settings=None):
     """The bridge's board (board.build) → IU's dispatcher board. acks: event id → incident id →
     unit name → ms (calldetails.CallDetails.acks): a phone-carried unit on a call shows TASK
     (tasked, not acknowledged) until its medic acknowledges, then RESP."""
@@ -146,6 +150,7 @@ def board(board_data, now_ms, acks=None, boundaries=None, supreqs=None):
             })
     return {"now": now_ms, "incidents": incidents, "units": units, "history": history,
             "acks": sorted(acked, key=lambda a: a["at"]), "boundaries": boundaries or [],
+            "alertSound": (settings or {}).get("alertSound") or "soft",
             "supRequests": [r for r in (supreqs or []) if not r.get("cleared") and now_ms - r["at"] <= SUPREQ_SHOW_MS]}
 
 
@@ -251,7 +256,8 @@ class Dispatcher:
         data = self._board()
         events = data.get("events") or []
         venue = self.manager.details.boundaries(events[0]["id"]) if events else []
-        return board(data, now_ms, self.manager.details.acks(), venue, self.manager.details.supreqs())
+        return board(data, now_ms, self.manager.details.acks(), venue, self.manager.details.supreqs(),
+                     self.manager.details.settings())
 
     def act(self, body, actor):
         if not isinstance(body, dict):
@@ -266,6 +272,12 @@ class Dispatcher:
         data = self._board()
         if action == "add_unit":
             return self._add_unit(data, body.get("unit") or {}, actor)
+        if action == "alert_sound":
+            sound = body.get("sound")
+            if sound not in ALERT_SOUNDS:
+                raise ManageError("sound must be soft or hilo")
+            self.manager.details.put_setting("alertSound", sound)
+            return {"id": ""}
         if action == "clear_supreq":
             self.manager.details.clear_supreq(_text(body.get("id"), 200))
             return {"id": ""}
@@ -327,7 +339,7 @@ class Dispatcher:
             else:
                 raise ManageError("status must be DISP, ONSC, TRAN, CLOSED or CXL")
         else:
-            raise ManageError("action must be assign, unassign, unit_status, status, create, add_unit or remove_unit")
+            raise ManageError("action must be assign, unassign, unit_status, status, notes, create, add_unit, remove_unit, unit_set, boundaries, clear_supreq or alert_sound")
         return {"id": call["id"]}
 
     def _waiting_for_ack(self, data, event, call, uid):

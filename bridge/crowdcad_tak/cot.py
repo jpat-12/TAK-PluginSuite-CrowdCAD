@@ -22,14 +22,16 @@ TYPES = {
 # CloudTAK/WinTAK by hand). Its uid and filenames are API: never change them once shipped.
 ICONSET_UID = hashlib.sha256(b"crowdcad-tak/iconset").hexdigest()
 PRIORITY_ICON = {1: "EMS P1.png", 2: "EMS P2.png", 3: "EMS P3.png"}
-# Raw GitHub PNGs (iconset/png in this repo): every TAK client fetches the same picture by URL, no
-# iconset import needed (the IU bridge's CAD_ICON_BASE approach). config `icon_base` overrides;
-# "" falls back to the iconset path.
-ICON_BASE = "https://raw.githubusercontent.com/jpat-12/TAK-PluginSuite-CrowdCAD/dev/iconset/png/"
+# Default: the iconset path ("<uid>/CrowdCAD/EMS P1.png"). CloudTAK (13.102) resolves icons only
+# from its iconset store (app/src/base/icon.ts fetchRemote splits "<iconset>:<path>"), so a raw
+# URL there renders as a plain dot. config `icon_base` (e.g. the raw GitHub iconset/png folder)
+# opts in to URLs, the IU bridge's CAD_ICON_BASE approach, for clients that fetch icons by URL.
+ICON_BASE = ""
 
 
 def incident_icon(priority, base=ICON_BASE):
-    """A call's marker: the EMS icon tinted by priority (same as ATAK's plugin), by URL."""
+    """A call's marker: the EMS icon tinted by priority (same as ATAK's plugin): the iconset path,
+    or a URL under `base` when one is configured."""
     name = PRIORITY_ICON.get(int(priority), PRIORITY_ICON[2])
     if base:
         return base.rstrip("/") + "/" + name.replace(" ", "%20")
@@ -94,19 +96,29 @@ def render_chat(to_uid, to_callsign, text, message_id, now_ms):
 ROSTER_TYPE = "t-x-crowdcad-roster"   # a tasking type: TAK clients route it, maps don't draw it
 
 
-def render_roster(event_id, units, now_ms, stale_s):
+ALERT_SOUNDS = ("soft", "hilo")   # ATAK AssignmentAlarm: res/raw alert_soft_pulses / alert_hi_lo
+
+
+def render_roster(event_id, units, now_ms, stale_s, alert="soft", supreqs=None):
     """Each phone-carried unit's dispatch status, for the ATAK plugin's unit icons (green available,
     grey out of service, light red anything else), and its CrowdCAD unit name for the panel's
     banner. units: [(device uid, IU status code or "", unit name)]. Unit names already go out as
-    marker callsigns; no member names, nothing from a call."""
+    marker callsigns; no member names, nothing from a call. alert: the assignment alert sound the
+    dispatcher chose for every phone ("soft" pulses, the default, or "hilo"). supreqs: device uid →
+    `at` (ms) of that phone's open supervisor request; absent once a dispatcher clears it, which is
+    how the phone learns its request was seen."""
     root = ET.Element("event", {
         "version": "2.0", "uid": f"crowdcad-{event_id}-roster", "type": ROSTER_TYPE, "how": "h-g-i-g-o",
         "time": iso(now_ms), "start": iso(now_ms), "stale": iso(now_ms + stale_s * 1000),
     })
     ET.SubElement(root, "point", {"lat": "0.0", "lon": "0.0", "hae": UNKNOWN, "ce": UNKNOWN, "le": UNKNOWN})
-    roster = ET.SubElement(ET.SubElement(root, "detail"), "__crowdcad_roster", {"v": "1"})
+    roster = ET.SubElement(ET.SubElement(root, "detail"), "__crowdcad_roster",
+                           {"v": "1", "alert": alert if alert in ALERT_SOUNDS else "soft"})
     for uid, status, name in units:
-        ET.SubElement(roster, "unit", {"uid": uid, "status": status or "", "name": name or ""})
+        attrs = {"uid": uid, "status": status or "", "name": name or ""}
+        if (supreqs or {}).get(uid):
+            attrs["supreq"] = str(int(supreqs[uid]))
+        ET.SubElement(roster, "unit", attrs)
     return ET.tostring(root, encoding="unicode")
 
 
@@ -125,7 +137,7 @@ def render_delete(target_uid, target_kind, now_ms):
     return ET.tostring(root, encoding="unicode")
 
 
-def render(item, now_ms, created_ms, updated_ms, stale_s):
+def render(item, now_ms, created_ms, updated_ms, stale_s, icon_base=ICON_BASE):
     root, detail = _event(item, now_ms, stale_s)
     f = item.fields
     if item.kind == "incident":
@@ -141,7 +153,7 @@ def render(item, now_ms, created_ms, updated_ms, stale_s):
         if f.get("notes"):
             attrs["notes"] = f["notes"]     # IU format: complaint/notes, no names, DOB or MRN (TAK notes only)
         ET.SubElement(detail, "__iucad_incident", attrs)
-        ET.SubElement(detail, "usericon", {"iconsetpath": incident_icon(f["priority"])})
+        ET.SubElement(detail, "usericon", {"iconsetpath": incident_icon(f["priority"], icon_base)})
     elif item.kind == "unit":
         # Unmapped status → no unit detail at all (COT_FORMAT.md §1: unknown is ignored, never defaulted).
         if f.get("status"):

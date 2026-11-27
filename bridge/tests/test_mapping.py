@@ -151,8 +151,14 @@ class CotTest(unittest.TestCase):
             "location": "Sec 104", "reportedBy": "Event Services", "created": "1794700800000",
             "updated": "1794701000000", "assigned": f"crowdcad-{EID}-team-team-1"})
         self.assertEqual(root.find("detail/contact").get("callsign"), "007 · Chest pain")
-        self.assertEqual(root.find("detail/usericon").get("iconsetpath"),
-                         "https://raw.githubusercontent.com/jpat-12/TAK-PluginSuite-CrowdCAD/dev/iconset/png/EMS%20P1.png")
+        self.assertEqual(root.find("detail/usericon").get("iconsetpath"), f"{cot.ICONSET_UID}/CrowdCAD/EMS P1.png")
+
+    def test_icon_base_sends_call_icons_by_url(self):
+        items, _ = build()
+        base = "https://raw.githubusercontent.com/jpat-12/TAK-PluginSuite-CrowdCAD/dev/iconset/png/"
+        xml = cot.render(items[f"crowdcad-{EID}-call-c1"], 1794701000000, 1794701000000, 1794701000000, 300, icon_base=base)
+        self.assertEqual(ET.fromstring(xml).find("detail/usericon").get("iconsetpath"), base + "EMS%20P1.png")
+        self.assertEqual(config.DEFAULTS["icon_base"], "")      # iconset path by default (CloudTAK)
 
     def test_closed_incident_short_stale(self):
         items, _ = build()

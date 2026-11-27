@@ -39,6 +39,8 @@ class Publisher:
         self.events = {}   # event id → {name, unplaced, counts}
         self.rosters = {}  # event id → [(device uid, status)] last sent (cot.render_roster)
         self.lock = threading.RLock()
+        if details is not None:
+            details.on_change = self.refresh_rosters   # supervisor request cleared, alert sound changed
 
     def selected(self, record):
         selection = self.config.get("events", "active")
@@ -48,7 +50,8 @@ class Publisher:
 
     def _emit(self, entry, now):
         stale = int(self.config.get("stale_seconds") or 300)
-        self.send(cot.render(entry["item"], now, entry["created"], entry["updated"], stale))
+        self.send(cot.render(entry["item"], now, entry["created"], entry["updated"], stale,
+                             icon_base=self.config.get("icon_base") or ""))
         if entry["item"].closed and self.config.get("delete_closed", True):
             # Closed / cancelled / gone: the CLOSED message (plugins read the status), then TAK's
             # delete so every map — CloudTAK and plugin-less ATAK too — drops the marker now,
@@ -106,7 +109,19 @@ class Publisher:
 
     def _emit_roster(self, eid, now):
         stale = int(self.config.get("stale_seconds") or 300)
-        self.send(cot.render_roster(eid, self.rosters.get(eid) or [], now, stale))
+        # The alert sound rides on the roster, so a dispatcher's change reaches phones within one
+        # heartbeat (30 s) without a roster change of its own.
+        alert = (self.details.settings().get("alertSound") if self.details else None) or "soft"
+        supreqs = self.details.open_supreqs(now) if self.details else {}
+        self.send(cot.render_roster(eid, self.rosters.get(eid) or [], now, stale, alert, supreqs))
+
+    def refresh_rosters(self):
+        """Re-send every live event's roster now (CallDetails.on_change)."""
+        with self.lock:
+            now = self.clock_ms()
+            for eid, info in self.events.items():
+                if not info.get("ended"):
+                    self._emit_roster(eid, now)
 
     def _close(self, entry, now):
         entry["item"].closed = True

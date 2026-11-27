@@ -56,6 +56,11 @@ DEFAULTS = {
     # 30 s: a marker someone deletes by hand in CloudTAK or ATAK comes back within 30 s while
     # its call is open (TAK clients re-add a deleted uid on its next message).
     "heartbeat_seconds": 30,
+    # Call marker icons. "" (default) = the CrowdCAD iconset path, which CloudTAK and ATAK resolve
+    # from an imported/installed iconset (CloudTAK can't draw a URL icon: it shows a plain dot).
+    # A URL folder (e.g. https://raw.githubusercontent.com/jpat-12/TAK-PluginSuite-CrowdCAD/dev/iconset/png/)
+    # sends icons by URL instead, for clients that fetch icons by URL.
+    "icon_base": "",
     "stale_seconds": 300,
     # One loopback HTTP server: /status for the console, /api/v1/* for the web clients
     # (Caddy publishes only the latter, at crowdcad-tak.<fqdn>).

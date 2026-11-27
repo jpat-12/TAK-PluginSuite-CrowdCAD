@@ -195,6 +195,30 @@ class FieldStatus:
         self.log(f"supervisor request: {unit} ({callsign}) → {sent} supervisor phone(s) + dispatch")
         return sent
 
+    def is_supervisor(self, event, unit, uid):
+        """A CrowdCAD supervisor (the event's `supervisor` list) or a phone set to SUP in its plugin."""
+        if self.designations.get(uid) == "SUP":
+            return True
+        return any(s.get("team") == unit for s in (event or {}).get("supervisor") or [])
+
+    def clear_answered_supreqs(self, details, eid, unit, report, event):
+        """A supervisor acknowledging a call answers the supervisor requests of the units on that
+        call (tracker R29): clear them through the same path a dispatcher's Clear uses, so phones are
+        re-sent the roster at once ("Supervisor request acknowledged") and CloudTAK's bar goes."""
+        if event is None or not self.is_supervisor(event, unit, report["uid"]):
+            return 0
+        prefix = mapping._id_prefix(event, self.config)
+        call = next((c for c in event.get("calls") or [] if mapping.incident_id(c, prefix) == report["incident"]), None)
+        on_call = {t for t in (call or {}).get("assignedTeam") or [] if t and t != unit}
+        cleared = 0
+        for req in details.supreqs():
+            if req.get("cleared") or req.get("event") != eid or req.get("unit") not in on_call:
+                continue
+            details.clear_supreq(req["id"])
+            cleared += 1
+            self.log(f"supervisor request cleared: {unit} acknowledged {report['incident']} (requested by {req['unit']})")
+        return cleared
+
     def binding(self, uid):
         """device uid → (event id, unit name) of a live event, or None."""
         with self.publisher.lock:
@@ -236,7 +260,9 @@ class FieldStatus:
         eid, unit = bound
         actor = f"ATAK: {report['callsign']}"
         clock = Clock(timezone=self.config.get("timezone") or "")
+        written = {}                                          # the record the ack was applied to
         def action(ev):
+            written["event"] = ev
             if not claim:
                 return plan(ev, self.config, unit, report, actor, clock)
             ev, link = link_device(ev, unit, report["uid"])
@@ -249,6 +275,7 @@ class FieldStatus:
             if details is not None:
                 # Tasked → Responding on every board, and the dispatcher's "acknowledged" banner.
                 details.put_ack(eid, report["incident"], unit, report["at"])
+                self.clear_answered_supreqs(details, eid, unit, report, written.get("event"))
             if claim:
                 self.heard[report["uid"]] = self.now_ms()
                 self._watch_at = 0.0                        # watch it for "last heard" right away

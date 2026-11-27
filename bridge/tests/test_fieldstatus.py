@@ -102,6 +102,28 @@ class WatcherTest(unittest.TestCase):
         self.assertEqual(self.store.writes, 1)
         self.assertIn("acknowledged", self.store.event["calls"][0]["log"][-1]["message"])
 
+    def test_supervisor_ack_clears_supervisor_requests_from_units_on_that_call(self):
+        # Tracker R29: Team 1 (on CC-001) and Team 2 (not on it) both asked for a supervisor; Sup 1,
+        # assigned to CC-001, acknowledges it: only Team 1's request is answered, and through the
+        # dispatcher's Clear path (on_change fires, so phones get the roster at once).
+        from crowdcad_tak import calldetails
+        sup_device = "ANDROID-sup1"
+        w = self.watcher()
+        self.store.event = apply(self.store.event, dispatch.assign(self.store.event, "c1", "Sup 1", None, CLOCK))
+        self.pub.events["e1f2g3h4i5j6k7l"]["device_teams"].append({"name": "Sup 1", "uid": sup_device, "supervisor": True})
+        details = self.pub.details = calldetails.CallDetails()
+        changes = []
+        for team, uid in (("Team 1", DEVICE), ("Team 2", "ANDROID-medic2")):
+            details.add_supreq({"id": uid + "-1", "event": "e1f2g3h4i5j6k7l", "unit": team, "uid": uid,
+                                "at": NOW - 9000, "cleared": False})
+        details.on_change = lambda: changes.append(1)
+        self.assertTrue(w.handle(pli("CC-001", NOW - 1000)))                  # Team 1's own ack: not a supervisor
+        self.assertEqual([r["cleared"] for r in details.supreqs()], [False, False])
+        self.assertTrue(w.handle(pli("CC-001", NOW - 500, uid=sup_device, callsign="SUP1")))
+        self.assertEqual({r["unit"]: r["cleared"] for r in details.supreqs()}, {"Team 1": True, "Team 2": False})
+        self.assertEqual(changes, [1])                                        # roster re-sent once
+        self.assertEqual(set(details.open_supreqs(NOW)), {"ANDROID-medic2"})
+
     def test_old_status_taps_change_nothing(self):
         w = self.watcher()
         w.offer(old_status_pli("AVL", NOW))

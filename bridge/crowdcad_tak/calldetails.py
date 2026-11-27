@@ -172,6 +172,10 @@ def apply(event, call_id, details, actor=None, clock=None):
     return {"calls": _replace(event.get("calls"), lambda c: c.get("id") == call_id, updated)}
 
 
+# An uncleared supervisor request counts as open this long (the board and the ATAK roster agree).
+SUPREQ_OPEN_MS = 60 * 60_000
+
+
 class CallDetails:
     """The bridge's structured copy of TAK details, per event and call. A small JSON file in the
     data dir (atomic replace): it only holds what a dispatcher typed, so losing it loses the
@@ -182,6 +186,10 @@ class CallDetails:
         self.path = path
         self.lock = threading.Lock()
         self.data = {}
+        # Called (no args, outside the lock) after a change phones must hear about at once: a
+        # supervisor request added or cleared, a setting changed. The Publisher sets it to re-send
+        # the roster; without it phones still catch up on the next heartbeat.
+        self.on_change = None
         if path:
             try:
                 with open(path, encoding="utf-8") as stream:
@@ -235,6 +243,7 @@ class CallDetails:
             data["_supreq"] = reqs[-50:]
             self._save(data)
             self.data = data
+        self._changed()
 
     def supreqs(self):
         with self.lock:
@@ -247,6 +256,42 @@ class CallDetails:
             data["_supreq"] = reqs
             self._save(data)
             self.data = data
+        self._changed()
+
+    def open_supreqs(self, now_ms):
+        """device uid → `at` of its newest open (uncleared, under SUPREQ_OPEN_MS old) supervisor
+        request: what the roster tells each phone, so its "Supervisor requested" line clears when a
+        dispatcher clears the request."""
+        out = {}
+        for r in self.supreqs():
+            if r.get("cleared") or not r.get("uid") or now_ms - int(r.get("at") or 0) > SUPREQ_OPEN_MS:
+                continue
+            out[r["uid"]] = max(out.get(r["uid"], 0), int(r["at"]))
+        return out
+
+    def _changed(self):
+        callback = self.on_change
+        if callback is not None:
+            try:
+                callback()
+            except Exception as error:   # a failed re-send must not fail the write: the heartbeat catches up
+                print(f"[crowdcad-tak] roster re-send failed: {error!r}", flush=True)
+
+    # Board-wide dispatcher settings: "_settings" → {"alertSound": "soft" | "hilo"}. Set from
+    # CloudTAK's Settings page; the phones get it in the roster CoT (cot.render_roster).
+    def settings(self):
+        with self.lock:
+            return dict(self.data.get("_settings") or {})
+
+    def put_setting(self, key, value):
+        with self.lock:
+            data = {eid: dict(v) if isinstance(v, dict) else v for eid, v in self.data.items()}
+            settings = dict(data.get("_settings") or {})
+            settings[key] = value
+            data["_settings"] = settings
+            self._save(data)
+            self.data = data
+        self._changed()
 
     def acks(self, event_id=None):
         """event id → {incident id → {unit name → ms}}, or one event's {incident id → …}."""

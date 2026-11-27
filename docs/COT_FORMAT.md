@@ -141,6 +141,28 @@ team logs, and member names are never copied into the bridge's items, so no conf
 them. `tests/test_mapping.py::test_no_patient_or_member_data_on_the_wire` renders every item
 from a fixture seeded with fake patient details and asserts none appear.
 
+## To ATAK: the roster (`t-x-crowdcad-roster`, CrowdCAD-only)
+
+One message per live event, sent when any phone-carried unit's status or name changes, at once
+when a supervisor request is made or cleared or a setting changes, and on every heartbeat (uid
+`crowdcad-<event id>-roster`, point 0,0). The plugin colours its unit icons from it, plays the
+dispatcher's chosen alert sound, and shows whether its supervisor request is still open:
+
+```xml
+<__crowdcad_roster v="1" alert="soft">
+  <unit uid="ANDROID-1a2b" status="RESP" name="Medic 1" supreq="1794701000000"/>
+</__crowdcad_roster>
+```
+
+| Attribute | Meaning |
+|---|---|
+| `v` | `1`. A plugin ignores a newer version |
+| `alert` | the assignment alert sound a dispatcher picked in CloudTAK Settings: `soft` (soft pulses, the default) or `hilo`. Missing or unknown = `soft` (older bridges) |
+| `unit/@uid` | the phone's device uid |
+| `unit/@status` | IU status code (`AVL`, `RESP`, `ONSC`, `TRAN`, `OOS`, or empty if unknown) |
+| `unit/@name` | the CrowdCAD unit the phone carries (its banner callsign) |
+| `unit/@supreq` | `at` (ms) of the phone's open supervisor request (its `<__crowdcad_supreq at>`). Absent when there is none: once a dispatcher clears the request (or after an hour) it disappears, and the plugin shows *Supervisor request acknowledged* for a minute (since 1.0.0) |
+
 ## From ATAK: `<__crowdcad_ack>` on the medic's own PLI (CrowdCAD-only, since 0.1.6)
 
 Medics can't set status (decided 2026-11-25). The plugin's one field action is Acknowledge on a
