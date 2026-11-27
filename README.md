@@ -361,7 +361,7 @@ cloudtak/                       CloudTAK plugin
     components/App.vue              the dispatcher: board, incident, + New call, + Add unit (IU's screens)
     components/UnitRadar.vue        units around a call, north up (IU's radar)
     lib/bridge.ts                   CrowdCAD backend: board + actions through the server half (one poll loop)
-    lib/core.ts                     pure display rules: status colours, floors, distances, closest units
+    lib/core.ts                     pure display rules: status colours, floors, distances, nearest units
     lib/lines.ts                    dashed unit → call lines on the map, in the unit's status colour
     lib/store.ts, map-pick.ts, plugin-api.ts   latest board + view state; map click/pin; the PluginAPI
   server/plugin-crowdcad.ts     server half: relays board + manage API with tokens that never reach the browser

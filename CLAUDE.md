@@ -6,6 +6,12 @@ Facts an agent needs that the code can't show. Workspace-wide rules: `../CLAUDE.
 - One bridge (`bridge/`, Python) + infra-TAK integration (`infratak/`) + three clients:
   ATAK (`atak/`, reads CoT), CloudTAK and WebTAK (`cloudtak/`, `webtak/`, read the board API).
 - Repo: github.com/jpat-12/TAK-PluginSuite-CrowdCAD (private); folder renamed to match 2026-11-19.
+- Tracker artifact (Jon works from it; reuse, never make a second): https://claude.ai/artifact/KrqxfiG1Az7fAADKF8KUig
+  (rebuilt 2026-11-27 in this account; the first one, QPenM3DtkWEYVsRtFNw7W5, lives in Jon's other account and its list does not load here)
+  (template + how-to: ../_templates/project-tracker/).
+- **Tracker numbers are the link (R34).** Every item has a number (R31, sub-items R24.1). Cite it in every
+  code comment explaining a change (`// tracker R31: ...`), commit subject (`R31: Call page: status above radar`),
+  agent prompt, deploy request and artifact, so a problem traces back to its request.
 
 ## Contracts (change together)
 - **Wire format is IU Event CAD's**, owned by
@@ -50,6 +56,10 @@ Facts an agent needs that the code can't show. Workspace-wide rules: `../CLAUDE.
   build.gradle prefers `atak/VERSION` (the packager's copy, gitignored) over `../VERSION`, and release signing falls
   back to `${buildDir}/android_keystore` (takdev's) when there is no `atak.sdk.path`. Verify by unzipping outside the
   repo and building there. Keep `atak/docs/SUBMISSION.md` (permissions/data answers) true when the manifest changes.
+- **Release builds for TPC signing must alert (R35).** The "Mute assignment alert" switch exists only when
+  `BuildConfig.DEBUG` (`AlertMute`), and `AlertPolicy.shouldAlert(false, …)` is always true, so a release ignores
+  any saved mute. Never ship a release with the mute reachable or defaulted on: check `AlertPolicy` /
+  `AlertPolicyTest` before packaging.
 - Iconset (ATAK + CloudTAK call markers): `python iconset/build_iconset.py` → atak/…/iconsets/CrowdCAD.zip.
   uid and filenames are API (cot.py names `EMS P1/P2/P3.png`); bump its VERSION to change art.
 - WebTAK: `node --test webtak/test/board.test.mjs` (Node 22 no longer takes a directory). CloudTAK: `CLOUDTAK_DIR=… node cloudtak/check-in-cloudtak.mjs`
