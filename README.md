@@ -131,6 +131,9 @@ This is enforced in one place and tested ([docs/COT_FORMAT.md](docs/COT_FORMAT.m
 
 > Use a **practice CrowdCAD event** for the first run, not a live one.
 
+Per-component install guides (bridge, CrowdCAD, ATAK incl. adb and plugin loading, CloudTAK,
+WebTAK, and how they connect): [docs/install/](docs/install/README.md).
+
 ### 1. Get the code onto the infra-TAK host
 
 ```bash
@@ -322,6 +325,7 @@ docs/
   API.md                        the read-only board API the web clients build against
   PLAN.md                       phases: CrowdCAD→TAK, infra-TAK deploys CrowdCAD, TAK→CrowdCAD, w3w
   VERIFY.md                     release smoke test (automated + on-host + device steps)
+  install/                      per-component install guides + how the pieces connect (certs, tokens, ports)
   images/                       README mockups (SVG, drawn from the UI code + demo fixture; not screenshots)
 bridge/                         the service (Python ≥3.10, stdlib only, no venv)
   crowdcad_tak/
