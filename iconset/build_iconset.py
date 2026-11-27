@@ -26,7 +26,7 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
-SVG_DIR = ROOT / "svgs"
+SVG_DIR = ROOT / "iconset" / "svgs"
 OUT_ZIP = ROOT / "atak" / "app" / "src" / "main" / "assets" / "iconsets" / "CrowdCAD.zip"
 PNG_DIR = ROOT / "iconset" / "png"   # the same 32px PNGs, for CloudTAK/WebTAK or review
 

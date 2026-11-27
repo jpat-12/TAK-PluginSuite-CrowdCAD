@@ -39,3 +39,8 @@ node_modules/
 
 # Pipeline packaging copies VERSION into the Gradle project; never track that copy (root VERSION is the truth)
 atak/VERSION
+
+# Signing keys of any shape (takdev's android_keystore sits under build/ already; this catches copies)
+*.jks
+*.keystore
+android_keystore
