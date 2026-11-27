@@ -44,15 +44,16 @@ final class UnitIcons {
     }
 
     /**
-     * Where every TAK client fetches the unit icons: the PNGs in this repo, by raw GitHub URL (the
-     * IU bridge's CAD_ICON_BASE approach). A URL in {@code <usericon iconsetpath>} needs no iconset
-     * imported anywhere. Point it at main once dev is merged.
+     * The same PNGs by raw GitHub URL (the IU bridge's CAD_ICON_BASE approach). NOT used by
+     * default: CloudTAK 13.102 resolves {@code <usericon iconsetpath>} only as an iconset id
+     * ({@code <iconsetUid>:<path>} in its iconset store) and draws a URL as a plain white dot. Kept
+     * for clients that fetch icons by URL.
      */
     static final String ICON_BASE = "https://raw.githubusercontent.com/jpat-12/TAK-PluginSuite-CrowdCAD/dev/iconset/png/";
 
-    /** {@code https://…/iconset/png/EMS%20ALS%20AVL.png}: the usericon iconsetpath. */
+    /** {@code <uid>/CrowdCAD/EMS ALS AVL.png}: the usericon iconsetpath (the CrowdCAD iconset). */
     static String path(String designation, String colour) {
-        return ICON_BASE + file(designation, colour).replace(" ", "%20");
+        return ICONSET_UID + "/CrowdCAD/" + file(designation, colour);
     }
 
     /** base64:// PNG of one unit icon for an ATAK Icon, read once from the bundled iconset; null if missing. */

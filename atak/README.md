@@ -57,7 +57,10 @@ app/src/main/
                                  Priority (P1 red #E03131, P2 orange #F76707, P3 yellow #FCC419)
   assets/iconsets/CrowdCAD.zip   EMS iconset built by the suite's iconset/build_iconset.py; uid and file names are API
   res/drawable-nodpi/cc_incident_ems.png  the PNG embedded in the suite's
-                                 svgs/incdnt-comand-white-solid-genric-ems-plain_2026_11_25.svg (white disc;
+                                 iconset/svgs/incdnt-comand-white-solid-genric-ems-plain_2026_11_25.svg (white disc;
                                  MULTIPLY-tinted at runtime, so ring and star stay dark)
-app/src/test/                    11 JVM tests; bridge-demo.cot is real bridge output (invented people)
+  res/raw/alert_*.wav            assignment alert sounds (soft pulses default, hi-lo by dispatcher);
+                                 made by tools/make_alert_sounds.py, never by hand
+tools/make_alert_sounds.py       regenerates the alert WAVs (--all DIR: all seven candidates)
+app/src/test/                    16 JVM tests; bridge-demo.cot is real bridge output (invented people)
 ```

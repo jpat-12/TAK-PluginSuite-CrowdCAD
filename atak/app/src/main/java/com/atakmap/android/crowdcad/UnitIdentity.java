@@ -59,9 +59,11 @@ final class UnitIdentity implements Roster.Listener {
             return;
         // ATAK's detail API first (no dependence on how CotEvent prints), the raw XML second.
         Map<String, String> statuses = new LinkedHashMap<>(), names = new LinkedHashMap<>();
+        Map<String, Long> requests = new LinkedHashMap<>();   // open supervisor requests (cleared = absent)
         CotDetail detail = event.getDetail();
         CotDetail r = detail == null ? null : detail.getFirstChildByName(0, RosterMessage.ELEMENT);
         if (r != null) {
+            roster.setAlert(r.getAttribute("alert"));
             for (int i = 0; i < r.childCount(); i++) {
                 CotDetail u = r.getChild(i);
                 String uid = u == null ? null : u.getAttribute("uid");
@@ -69,19 +71,24 @@ final class UnitIdentity implements Roster.Listener {
                     continue;
                 statuses.put(uid, u.getAttribute("status") == null ? "" : u.getAttribute("status"));
                 names.put(uid, u.getAttribute("name") == null ? "" : u.getAttribute("name"));
+                long at = RosterMessage.toMs(u.getAttribute("supreq"));
+                if (at > 0)
+                    requests.put(uid, at);
             }
         } else {
             String xml = event.toString();
+            roster.setAlert(RosterMessage.alert(xml));
             Map<String, String> parsed = RosterMessage.parse(xml);
             if (parsed != null) {
                 statuses = parsed;
                 names = RosterMessage.names(xml);
+                requests = RosterMessage.supervisorRequests(xml);
             }
         }
         Log.d(CrowdCadMapComponent.TAG, "roster received: " + statuses.size() + " unit(s), this phone: "
                 + statuses.get(MapView.getDeviceUid()));
         if (!statuses.isEmpty())
-            roster.put(statuses, names);
+            roster.put(statuses, names, requests, System.currentTimeMillis());
     }
 
     /** Where this phone learns it's on an open call (the Board), for the busy colour. */

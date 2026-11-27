@@ -54,7 +54,8 @@ public class CrowdCadMapComponent extends DropDownMapComponent {
         board.addListener(() -> view.post(identity::refresh));
         CrowdCadDropDown dropDown = new CrowdCadDropDown(view, context, board, acks, identity, supervisor);
         styler = new IncidentStyler(context, view);
-        incidentHandler = new IncidentHandler(board, incident -> alertAssigned(view, dropDown, incident), styler);
+        incidentHandler = new IncidentHandler(board,
+                incident -> alertAssigned(context, view, dropDown, incident, roster.alert()), styler);
         unitHandler = new UnitHandler(board);
         CotDetailManager.getInstance().registerHandler(incidentHandler);
         CotDetailManager.getInstance().registerHandler(unitHandler);
@@ -70,11 +71,12 @@ public class CrowdCadMapComponent extends DropDownMapComponent {
     }
 
     /** UI thread. Loud on purpose: an assignment a medic doesn't notice is a patient waiting. */
-    private static void alertAssigned(MapView view, CrowdCadDropDown dropDown, Incident incident) {
+    private static void alertAssigned(Context plugin, MapView view, CrowdCadDropDown dropDown, Incident incident,
+            String sound) {
         Context ctx = view.getContext();
         Toast.makeText(ctx, "CrowdCAD: assigned to " + incident.id + " — " + incident.type
                 + " at " + incident.location, Toast.LENGTH_LONG).show();
-        AssignmentAlarm.fire(ctx);     // alarm tone at full alarm volume + 5 s hard vibration
+        AssignmentAlarm.fire(ctx, plugin, sound);   // the dispatcher's sound at full alarm volume + 5 s hard vibration
         dropDown.showIncident(incident);
     }
 

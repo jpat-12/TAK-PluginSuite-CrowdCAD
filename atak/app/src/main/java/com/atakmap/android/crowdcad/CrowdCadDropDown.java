@@ -55,13 +55,19 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
     private final UnitIdentity identity;
     private final SupervisorRequest supervisor;
     private TextView supervisorLabel;
+    private Button requestButton;
     private TextView designationLabel;
+    private Button muteButton;              // debug builds only (R35)
     private ImageView bannerIcon;
     private TextView bannerStatus;
     private TextView bannerTitle;
     private LinearLayout settingsBox;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Runnable render = this::render;
+    // A request just sent shows until the bridge's roster echoes it (or this long, if it never does).
+    private static final long SUPREQ_ECHO_MS = 2 * 60_000;
+    // How long "Supervisor request acknowledged" stays after a dispatcher clears the request.
+    private static final long SUPREQ_ACK_SHOW_MS = 90_000;     // 1.5 min (Jon, tracker)
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
@@ -158,14 +164,23 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
 
         // Request Supervisor: red, and confirmed once more so nobody sends it by a stray tap.
         Button request = button(col, "Request Supervisor", v -> confirmSupervisor());
+        requestButton = request;
         request.setTextColor(0xFFFFFFFF);
+        request.setTextSize(13);
+        request.setAllCaps(false);
+        request.setMinHeight(0);
+        request.setMinimumHeight(0);
+        request.setMinWidth(0);
+        request.setMinimumWidth(0);
+        request.setPadding(dp(12), dp(4), dp(12), dp(4));
         GradientDrawable red = new GradientDrawable();
         red.setColor(0xFFC62828);
         red.setCornerRadius(dp(6));
         request.setBackground(red);
-        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
-        rp.setMargins(0, dp(8), 0, 0);
+        rp.setMargins(0, dp(6), 0, 0);
+        rp.gravity = android.view.Gravity.END;       // compact, right-aligned under the banner
         request.setLayoutParams(rp);
         supervisorLabel = text(col, "", false);
         supervisorLabel.setVisibility(View.GONE);
@@ -185,10 +200,17 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
             });
         }
         showDesignation();
+        if (AlertMute.available()) {         // tracker R35: debug builds only, never in a release
+            muteButton = button(settingsBox, "", v -> {
+                AlertMute.set(getMapView().getContext(), !AlertMute.muted(getMapView().getContext()));
+                showMute();
+            });
+            showMute();
+        }
 
         assignmentLabel = text(col, "", true);
         assignmentLabel.setPadding(0, dp(8), 0, 0);
-        header(col, "Open calls");
+        header(col, "Your calls");
         incidentsBox = column(col);
         unitsHeader = header(col, "Units");
         unitsBox = column(col);
@@ -199,23 +221,76 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
     private void showDesignation() {
         String d = identity.designation();
         designationLabel.setText("Unit icon: " + (d.isEmpty() ? "Off" : d));
+        // Tracker R40: a Supervisor unit doesn't request a supervisor, so no button for it.
+        if (requestButton != null)
+            requestButton.setVisibility("SUP".equals(d) ? View.GONE : View.VISIBLE);
+        renderBanner(false);
+    }
+
+    /** Debug builds (R35): the mute switch's label, and the banner's reminder. */
+    private void showMute() {
+        if (muteButton != null)
+            muteButton.setText(AlertMute.muted(getMapView().getContext())
+                    ? "Assignment alert: muted (debug build) · tap to unmute"
+                    : "Mute assignment alert (debug build)");
         renderBanner(false);
     }
 
     /** "Are you sure?" before the request goes to every supervisor and dispatch. */
     private void confirmSupervisor() {
+        try {
+            showSupervisorDialog();
+        } catch (Throwable t) {      // a dialog problem must never take ATAK down
+            android.util.Log.e(CrowdCadMapComponent.TAG, "supervisor dialog failed", t);
+            android.widget.Toast.makeText(getMapView().getContext(), "Request Supervisor failed: " + t.getMessage(),
+                    android.widget.Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void showSupervisorDialog() {
         new android.app.AlertDialog.Builder(getMapView().getContext())
                 .setTitle("Request a supervisor?")
                 .setMessage("This alerts every supervisor and dispatch right away.")
                 .setPositiveButton("Yes, request", (dlg, which) -> {
-                    supervisor.send();
-                    supervisorLabel.setText("Supervisor requested at "
-                            + new java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(new java.util.Date()));
-                    supervisorLabel.setTextColor(0xFFFF8A80);
-                    supervisorLabel.setVisibility(View.VISIBLE);
+                    try {
+                        supervisor.send();
+                    } catch (Throwable t) {
+                        android.util.Log.e(CrowdCadMapComponent.TAG, "supervisor request failed", t);
+                        return;
+                    }
+                    renderSupervisor(System.currentTimeMillis());
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    /**
+     * "Supervisor requested at HH:MM" while this phone's request is open on the dispatcher's board
+     * (the bridge's roster echoes it), or just sent and not echoed yet; once a dispatcher clears it,
+     * "Supervisor request acknowledged" for a minute, then nothing.
+     */
+    private void renderSupervisor(long now) {
+        if (supervisorLabel == null)
+            return;
+        Roster roster = identity.roster();
+        String uid = MapView.getDeviceUid();
+        long open = roster.supervisorRequest(uid);
+        long sent = supervisor.lastAt();
+        boolean pending = sent > roster.lastSupervisorRequestSeen(uid) && now - sent < SUPREQ_ECHO_MS;
+        long acked = roster.acknowledgedAt(uid);
+        if (open > 0 || pending) {
+            supervisorLabel.setText("Supervisor requested at "
+                    + new java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+                            .format(new java.util.Date(open > 0 ? open : sent)));
+            supervisorLabel.setTextColor(0xFFFF8A80);
+            supervisorLabel.setVisibility(View.VISIBLE);
+        } else if (acked > 0 && now - acked < SUPREQ_ACK_SHOW_MS) {
+            supervisorLabel.setText("\u2713 Supervisor request acknowledged");
+            supervisorLabel.setTextColor(0xFF81C784);
+            supervisorLabel.setVisibility(View.VISIBLE);
+        } else {
+            supervisorLabel.setVisibility(View.GONE);
+        }
     }
 
     /** The banner: this phone's unit icon in its dispatch colour, and its availability in words. */
@@ -247,7 +322,9 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
         }
         String unit = roster.unitName(uid);    // this phone's CrowdCAD callsign, e.g. "Medic 1"
         bannerTitle.setText(unit.isEmpty() ? "CrowdCAD" : "CrowdCAD  ·  " + unit);
-        bannerStatus.setText("·  " + label);
+        // R35: a tester must not forget the alert is off.
+        bannerStatus.setText("·  " + label
+                + (AlertMute.muted(getMapView().getContext()) ? "  ·  🔇 alert muted (debug)" : ""));
         bannerStatus.setTextColor(color(colour));
     }
 
@@ -257,21 +334,24 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
         long now = System.currentTimeMillis();
         incidentsBox.removeAllViews();
         List<Incident> open = board.openIncidents(now);
-        if (open.isEmpty())
-            text(incidentsBox, "No open calls.", false);
         String myUid = MapView.getDeviceUid();
         String myCallsign = getMapView().getDeviceCallsign();
         List<String> mine = new ArrayList<>();
+        // A medic sees only the calls assigned to this phone (Jon, tracker "See call scope");
+        // other open calls stay on the dispatcher's board and the TAK map.
         for (Incident i : open) {
-            boolean isMine = Assignment.isMine(i.assigned, myUid, myCallsign);
-            if (isMine)
-                mine.add(i.id);
-            incidentCard(i, now, isMine);
+            if (!Assignment.isMine(i.assigned, myUid, myCallsign))
+                continue;
+            mine.add(i.id);
+            incidentCard(i, now, true);
         }
+        if (mine.isEmpty())
+            text(incidentsBox, "No calls assigned to you.", false);
         boolean waiting = false;     // assigned a call not acknowledged yet: Tasked, as dispatch sees it
         for (String id : mine)
             waiting |= acks.ackedAt(id) == null;
         renderBanner(waiting);
+        renderSupervisor(now);
         assignmentLabel.setText(mine.isEmpty() ? "" : "Assigned: " + android.text.TextUtils.join(", ", mine));
         assignmentLabel.setVisibility(mine.isEmpty() ? View.GONE : View.VISIBLE);
 
@@ -327,6 +407,7 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
                     .setTextColor(color(R.color.cc_avl));
         } else {
             Button ack = button(card, "Acknowledge", v -> {
+                AssignmentAlarm.stop(getMapView().getContext());   // the beeps and buzz stop at once
                 acks.acknowledge(i.id);
                 render();
             });

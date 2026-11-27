@@ -26,6 +26,7 @@ The plugin:
 - shows a panel: my assignment (read-only), open incidents (priority first), units. Tapping a card
   centres the map;
 - vibrates, shows a toast and opens the call when an incident is assigned to this device's uid;
+  release builds always alert (a tester-only mute exists in debug builds only, R35);
 - installs its bundled CrowdCAD iconset (EMS icons) into ATAK's icon library on load. If the
   import fails it shows a dialog with Retry;
 - on a call assigned to this device, offers **Acknowledge**: it adds `<__crowdcad_ack incident at>`

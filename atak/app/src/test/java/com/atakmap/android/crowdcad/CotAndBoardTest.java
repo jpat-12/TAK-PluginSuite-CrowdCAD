@@ -164,10 +164,53 @@ public class CotAndBoardTest {
         assertEquals("OOS", roster.colour("ANDROID-c"));    // unknown: grey, never "available" on a guess
         assertEquals("OOS", roster.colour("ANDROID-zzz"));  // not linked to a unit
         assertNull(com.atakmap.android.crowdcad.cot.RosterMessage.parse("<__crowdcad_roster v=\"2\">"));
-        assertEquals(UnitIcons.ICON_BASE + "EMS%20ALS%20AVL.png", UnitIcons.path("ALS", "AVL"));   // raw GitHub PNG
-        assertTrue(UnitIcons.ICON_BASE.startsWith("https://raw.githubusercontent.com/"));
+        assertEquals("abee9e5e3aec4b62a5bbb27c78fcb9b27e0140919c7ff132c8c6fa41ab2b0c78/CrowdCAD/EMS ALS AVL.png",
+                UnitIcons.path("ALS", "AVL"));               // iconset path: what CloudTAK resolves
         assertTrue(UnitIcons.valid("SUP"));
         assertFalse(UnitIcons.valid("MD1"));
+    }
+
+    @Test
+    public void rosterCarriesTheDispatchersAlertSound() {
+        com.atakmap.android.crowdcad.model.Roster roster = new com.atakmap.android.crowdcad.model.Roster();
+        assertEquals("soft", roster.alert());                       // before any roster: soft pulses
+        String hilo = "<__crowdcad_roster v=\"1\" alert=\"hilo\"><unit uid=\"ANDROID-a\" status=\"AVL\"/></__crowdcad_roster>";
+        roster.setAlert(com.atakmap.android.crowdcad.cot.RosterMessage.alert(hilo));
+        assertEquals("hilo", roster.alert());
+        assertEquals("soft", com.atakmap.android.crowdcad.cot.RosterMessage.alert(
+                "<__crowdcad_roster v=\"1\"><unit uid=\"ANDROID-a\"/></__crowdcad_roster>"));     // older bridge
+        assertEquals("soft", com.atakmap.android.crowdcad.cot.RosterMessage.alert(
+                "<__crowdcad_roster v=\"1\" alert=\"siren\">"));                                 // unknown value
+        assertEquals("soft", com.atakmap.android.crowdcad.cot.RosterMessage.alert(null));
+        assertEquals("soft", com.atakmap.android.crowdcad.cot.RosterMessage.alert(
+                "<unit uid=\"x\" alert=\"hilo\"/>"));                                            // only the roster element counts
+        roster.setAlert("nonsense");
+        assertEquals("soft", roster.alert());
+        roster.setAlert(null);
+        assertEquals("soft", roster.alert());
+    }
+
+    @Test
+    public void rosterTellsAPhoneItsSupervisorRequestWasCleared() {
+        String open = "<__crowdcad_roster v=\"1\"><unit uid=\"ANDROID-a\" status=\"ONSC\" supreq=\"1794700000000\"/>"
+                + "<unit uid=\"ANDROID-b\" status=\"AVL\"/></__crowdcad_roster>";
+        java.util.Map<String, Long> reqs = com.atakmap.android.crowdcad.cot.RosterMessage.supervisorRequests(open);
+        assertEquals(java.util.Collections.singletonMap("ANDROID-a", 1794700000000L), reqs);
+        com.atakmap.android.crowdcad.model.Roster roster = new com.atakmap.android.crowdcad.model.Roster();
+        java.util.Map<String, String> statuses = com.atakmap.android.crowdcad.cot.RosterMessage.parse(open);
+        roster.put(statuses, null, reqs, 1000);
+        assertEquals(1794700000000L, roster.supervisorRequest("ANDROID-a"));
+        assertEquals(0, roster.acknowledgedAt("ANDROID-a"));
+        String cleared = open.replace(" supreq=\"1794700000000\"", "");
+        roster.put(com.atakmap.android.crowdcad.cot.RosterMessage.parse(cleared), null,
+                com.atakmap.android.crowdcad.cot.RosterMessage.supervisorRequests(cleared), 2000);
+        assertEquals(0, roster.supervisorRequest("ANDROID-a"));
+        assertEquals(2000, roster.acknowledgedAt("ANDROID-a"));                 // cleared by a dispatcher
+        assertEquals(1794700000000L, roster.lastSupervisorRequestSeen("ANDROID-a"));
+        assertEquals(0, roster.acknowledgedAt("ANDROID-b"));                    // never had one
+        roster.put(statuses, null, null, 3000);                                // older bridge: no change
+        assertEquals(0, roster.supervisorRequest("ANDROID-a"));
+        assertEquals(0, com.atakmap.android.crowdcad.cot.RosterMessage.toMs("x"));
     }
 
     @Test
