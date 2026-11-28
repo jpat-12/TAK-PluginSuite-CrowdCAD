@@ -630,8 +630,22 @@ def _register_routes(g):
     def cross_origin():
         # Same-origin only (the console's own CSRF baseline, re-checked here because older
         # infra-TAK versions don't apply it to non-/api routes).
+        # Tracker R45: behind infra-TAK's Caddy the Host header is the upstream, so compare with
+        # X-Forwarded-Host(+Port) and treat :443/:80 as no port, the way app.py's
+        # _same_origin_ok does; comparing request.host refused the console's own forms.
         origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
-        return bool(origin) and urllib.parse.urlsplit(origin).netloc != request.host
+        if not origin:
+            return False
+        host = request.headers.get("X-Forwarded-Host", "").split(",")[0].strip()
+        port = request.headers.get("X-Forwarded-Port", "").strip()
+        if host and port and ":" not in host:
+            host = f"{host}:{port}"
+        host = host or request.host or ""
+
+        def norm(netloc):
+            netloc = netloc.strip().lower()
+            return netloc.rsplit(":", 1)[0] if netloc.endswith((":443", ":80")) else netloc
+        return norm(urllib.parse.urlsplit(origin).netloc) != norm(host)
 
     def cloudtak_install():
         if cross_origin():

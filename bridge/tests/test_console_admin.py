@@ -224,6 +224,21 @@ class PageTest(_Base):
         self.assertIn("global-crowdcad", body)
         self.assertTrue(self.config()["tak_cert"].endswith("tak-client.pem"))
 
+    def test_upload_behind_caddy_is_same_origin(self):
+        # R45: Caddy forwards to 127.0.0.1:5001, so Host is the upstream; the browser's origin
+        # matches X-Forwarded-Host. This must not be refused as cross-origin.
+        for headers in ({"Origin": "https://infratak.example.org", "X-Forwarded-Host": "infratak.example.org"},
+                        {"Origin": "https://infratak.example.org", "X-Forwarded-Host": "infratak.example.org",
+                         "X-Forwarded-Port": "443"},
+                        {"Origin": "https://infratak.example.org:443", "Host": "infratak.example.org"}):
+            response = self.client.post("/crowdcad/cert", data={}, headers=headers,
+                                        base_url="http://127.0.0.1:5001")
+            self.assertNotEqual(response.status_code, 403, headers)
+        response = self.client.post("/crowdcad/cert", data={}, base_url="http://127.0.0.1:5001",
+                                    headers={"Origin": "https://evil.example.com",
+                                             "X-Forwarded-Host": "infratak.example.org"})
+        self.assertEqual(response.status_code, 403)
+
     def test_cross_origin_upload_refused(self):
         response = self.client.post("/crowdcad/cert", data={}, headers={"Origin": "https://evil.example.com"})
         self.assertEqual(response.status_code, 403)
