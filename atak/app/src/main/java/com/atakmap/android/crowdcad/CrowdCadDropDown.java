@@ -62,6 +62,8 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
     private TextView bannerStatus;
     private TextView bannerTitle;
     private LinearLayout settingsBox;
+    private Button iconsetButton;
+    private IconsetInstaller iconset;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Runnable render = this::render;
     // A request just sent shows until the bridge's roster echoes it (or this long, if it never does).
@@ -200,6 +202,15 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
             });
         }
         showDesignation();
+        iconsetButton = button(settingsBox, "", v -> {       // tracker R42: opt-in, off by default
+            Context ctx = getMapView().getContext();
+            boolean on = !IconsetPref.enabled(ctx);
+            IconsetPref.set(ctx, on);
+            if (on && iconset != null)
+                iconset.start();
+            showIconset();
+        });
+        showIconset();
         if (AlertMute.available()) {         // tracker R35: debug builds only, never in a release
             muteButton = button(settingsBox, "", v -> {
                 AlertMute.set(getMapView().getContext(), !AlertMute.muted(getMapView().getContext()));
@@ -225,6 +236,18 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
         if (requestButton != null)
             requestButton.setVisibility("SUP".equals(d) ? View.GONE : View.VISIBLE);
         renderBanner(false);
+    }
+
+    /** Tracker R42: set by the map component once its installer exists. */
+    void setIconsetInstaller(IconsetInstaller installer) {
+        iconset = installer;
+    }
+
+    private void showIconset() {
+        if (iconsetButton != null)
+            iconsetButton.setText(IconsetPref.enabled(getMapView().getContext())
+                    ? "Load CrowdCAD iconset into ATAK: on · tap to turn off"
+                    : "Load CrowdCAD iconset into ATAK: off · tap to turn on");
     }
 
     /** Debug builds (R35): the mute switch's label, and the banner's reminder. */

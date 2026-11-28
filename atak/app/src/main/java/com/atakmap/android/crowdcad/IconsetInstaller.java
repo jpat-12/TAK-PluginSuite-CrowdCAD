@@ -43,8 +43,10 @@ import java.util.zip.ZipInputStream;
  * 4. ADD_ICONSET returns nothing, so poll UserIconDatabase until the set appears.
  *
  * Any failure (missing or bad asset, unwritable storage, import never landing) opens a dialog
- * with Retry, because a silently missing iconset means every CrowdCAD marker falls back to a
- * default icon and nobody knows why.
+ * with Retry or "Stop loading it".
+ *
+ * Opt-in since tracker R42 ({@link IconsetPref}, off by default): on some devices the import
+ * never settled and Retry looped. The plugin's own markers don't need the set.
  */
 final class IconsetInstaller {
 
@@ -65,7 +67,10 @@ final class IconsetInstaller {
         this.mapView = mapView;
     }
 
+    /** Runs only when the operator has the iconset turned on (tracker R42, {@link IconsetPref}). */
     void start() {
+        if (stopped || !IconsetPref.enabled(mapView.getContext()))
+            return;
         worker.execute(this::installOrReport);
     }
 
@@ -117,7 +122,7 @@ final class IconsetInstaller {
             Thread.currentThread().interrupt();   // plugin unloading: nothing to report
         } catch (Exception e) {
             Log.e(CrowdCadMapComponent.TAG, "iconset install failed", e);
-            if (!stopped)
+            if (!stopped && IconsetPref.enabled(mapView.getContext()))
                 ui.post(() -> showError(e.getMessage() != null ? e.getMessage() : e.toString()));
         }
     }
@@ -149,7 +154,7 @@ final class IconsetInstaller {
         Log.d(CrowdCadMapComponent.TAG, "iconset import requested: " + out + " (v" + header.version + ")");
 
         long deadline = System.currentTimeMillis() + CONFIRM_TIMEOUT_MS;
-        while (System.currentTimeMillis() < deadline) {
+        while (System.currentTimeMillis() < deadline && !stopped) {
             Thread.sleep(CONFIRM_POLL_MS);
             UserIconSet now = db.getIconSet(header.uid, false, false);
             if (now != null && now.getVersion() >= header.version) {
@@ -192,9 +197,11 @@ final class IconsetInstaller {
     private void showError(String reason) {
         new AlertDialog.Builder(mapView.getContext())
                 .setTitle("CrowdCAD icons not loaded")
-                .setMessage("The CrowdCAD iconset could not be added to ATAK, so CrowdCAD markers "
-                        + "will show default icons.\n\nReason: " + reason)
+                .setMessage("The CrowdCAD iconset could not be added to ATAK's icon library. The "
+                        + "CrowdCAD panel and its markers still work.\n\nReason: " + reason)
                 .setPositiveButton("Retry", (d, w) -> start())
+                // Tracker R42: a way out when the import never settles, instead of Retry forever.
+                .setNeutralButton("Stop loading it", (d, w) -> IconsetPref.set(mapView.getContext(), false))
                 .setNegativeButton("Dismiss", null)
                 .show();
     }

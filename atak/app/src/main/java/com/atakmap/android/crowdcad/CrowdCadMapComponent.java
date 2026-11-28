@@ -67,7 +67,8 @@ public class CrowdCadMapComponent extends DropDownMapComponent {
         acks.start();
         identity.start();
         iconset = new IconsetInstaller(context, view);
-        iconset.start();
+        dropDown.setIconsetInstaller(iconset);
+        iconset.start();          // no-op unless turned on in Settings (tracker R42)
     }
 
     /** UI thread. Loud on purpose: an assignment a medic doesn't notice is a patient waiting. */
