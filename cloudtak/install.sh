@@ -129,9 +129,24 @@ fi
 if [ "$DO_BUILD" -eq 1 ]; then
     # Same two steps infra-TAK's own CloudTAK plugin installer runs; --no-cache so the Vite
     # bundle can't come from a layer cached before the plugin files changed.
+    # Use the compose files and env file the running api container was started with (its compose
+    # labels). infra-TAK 10.x starts CloudTAK with extra files (override: Garage store, media image;
+    # custom; marketplace) and env (CLOUDTAK_Hub_URL) that a bare `docker compose` here misses: it
+    # then tried to pull upstream's MinIO image (gone from quay.io: 401) and never recreated the
+    # api (tracker R41). --no-deps: only the api is replaced; the rest of CloudTAK is left alone.
+    COMPOSE=(docker compose)
+    files="$(docker inspect cloudtak-api-1 --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' 2>/dev/null || true)"
+    envs="$(docker inspect cloudtak-api-1 --format '{{ index .Config.Labels "com.docker.compose.project.environment_file" }}' 2>/dev/null || true)"
+    if [ -n "$files" ]; then
+        IFS=, read -r -a list <<< "$files"
+        for f in "${list[@]}"; do [ -f "$f" ] && COMPOSE+=(-f "$f"); done
+        IFS=, read -r -a list <<< "$envs"
+        for f in "${list[@]}"; do [ -n "$f" ] && [ -f "$f" ] && COMPOSE+=(--env-file "$f"); done
+        echo "==> Using the running CloudTAK's compose setup: ${COMPOSE[*]:2}"
+    fi
     echo "==> Rebuilding the CloudTAK API image (5–15 min; the build also lint/type-checks the plugin)"
-    (cd "$CT_DIR" && docker compose build --no-cache api)
+    (cd "$CT_DIR" && "${COMPOSE[@]}" build --no-cache api)
     echo "==> Restarting the CloudTAK API container (CloudTAK is unreachable for ~30 s)"
-    (cd "$CT_DIR" && docker compose up -d --force-recreate api)
+    (cd "$CT_DIR" && "${COMPOSE[@]}" up -d --no-deps --pull never --force-recreate api)
     echo "==> Done. In the browser: CloudTAK → Settings → Refresh App (a hard refresh is not enough)."
 fi
