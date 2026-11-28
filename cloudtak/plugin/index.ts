@@ -12,7 +12,7 @@
 import type { App } from 'vue';
 import { markRaw } from 'vue';
 import type { PluginAPI, PluginInstance, MenuItemConfig } from '@tak-ps/cloudtak';
-import { IconAmbulance } from '@tabler/icons-vue';
+import IconStarOfLife from './lib/star-of-life.ts';
 import CadApp from './components/App.vue';
 import { initPluginApi } from './lib/plugin-api.ts';
 import { act, startPolling, stopPolling } from './lib/bridge.ts';
@@ -65,7 +65,7 @@ export default class CrowdCadDispatchPlugin implements PluginInstance {
             route:       ROUTE_NAME,
             tooltip:     'CrowdCAD Event Dispatcher',
             description: 'Assign medics to CrowdCAD calls, track responses',
-            icon:        markRaw(IconAmbulance),
+            icon:        markRaw(IconStarOfLife),   // tracker R46
         } as MenuItemConfig);
     }
 

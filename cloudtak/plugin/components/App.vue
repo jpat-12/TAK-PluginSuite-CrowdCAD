@@ -11,7 +11,7 @@
         class='iucad'
     >
         <div class='d-flex align-items-center px-3 py-2 iucad-header'>
-            <IconAmbulance :size='22' />
+            <IconStarOfLife :size='22' />
             <div
                 class='ms-2 fw-bold'
                 style='font-size:15px'
@@ -1012,7 +1012,7 @@
 
 <script setup lang='ts'>
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
-import { IconAmbulance } from '@tabler/icons-vue';
+import IconStarOfLife from '../lib/star-of-life.ts';   // tracker R46
 import UnitRadar from './UnitRadar.vue';
 import { store } from '../lib/store.ts';
 import { act, contacts, refresh, w3wAt, w3wFind, setDispatcher, setSatellite, setNotifySound, type TakContact } from '../lib/bridge.ts';
