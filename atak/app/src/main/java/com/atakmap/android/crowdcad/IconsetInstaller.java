@@ -45,8 +45,10 @@ import java.util.zip.ZipInputStream;
  * Any failure (missing or bad asset, unwritable storage, import never landing) opens a dialog
  * with Retry or "Stop loading it".
  *
- * Opt-in since tracker R42 ({@link IconsetPref}, off by default): on some devices the import
- * never settled and Retry looped. The plugin's own markers don't need the set.
+ * Tracker R42 ({@link IconsetPref}): on ATAK 5.8 the import never settled and Retry looped.
+ * "Stop loading it" turns the import off (Settings turns it back on), and an import that was
+ * started but never confirmed (ATAK hung or was killed) is not started again on the next load:
+ * the dialog asks first. The plugin's own markers don't need the set.
  */
 final class IconsetInstaller {
 
@@ -140,6 +142,14 @@ final class IconsetInstaller {
             return;
         }
 
+        // Tracker R42: an import requested last time never confirmed (ATAK hung or was killed in
+        // it). Ask, via the error dialog, instead of starting the same import again.
+        Context ctx = mapView.getContext();
+        if (IconsetPref.pending(ctx)) {
+            IconsetPref.setPending(ctx, false);
+            throw new IOException("ATAK didn't finish importing the iconset last time it tried");
+        }
+
         File dir = FileSystemUtils.getItem("tools/crowdcad");
         if (!IOProviderFactory.exists(dir) && !IOProviderFactory.mkdirs(dir))
             throw new IOException("can't create " + dir);
@@ -148,6 +158,7 @@ final class IconsetInstaller {
             os.write(zip);
         }
 
+        IconsetPref.setPending(ctx, true);
         Intent add = new Intent(ADD_ICONSET);
         add.putExtra("filepath", out.getAbsolutePath());
         AtakBroadcast.getInstance().sendBroadcast(add);
@@ -158,10 +169,14 @@ final class IconsetInstaller {
             Thread.sleep(CONFIRM_POLL_MS);
             UserIconSet now = db.getIconSet(header.uid, false, false);
             if (now != null && now.getVersion() >= header.version) {
+                IconsetPref.setPending(ctx, false);
                 Log.d(CrowdCadMapComponent.TAG, "iconset " + header.uid + " v" + now.getVersion() + " installed");
                 return;
             }
         }
+        if (stopped)
+            return;                  // plugin unloading mid-wait: leave "pending" for the next load
+        IconsetPref.setPending(ctx, false);   // reported now, so the next load imports normally
         throw new IOException("ATAK did not finish importing the iconset within "
                 + CONFIRM_TIMEOUT_MS / 1000 + " s");
     }

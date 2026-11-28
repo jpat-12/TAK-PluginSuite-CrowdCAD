@@ -1,6 +1,6 @@
 {
     "name": "cloudtak-plugin-crowdcad",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "private": true,
     "type": "module",
     "description": "CloudTAK plugin — CrowdCAD for TAK dispatch board (read-only client of the CrowdCAD bridge)",

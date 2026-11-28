@@ -202,7 +202,7 @@ public class CrowdCadDropDown extends DropDownReceiver implements DropDown.OnSta
             });
         }
         showDesignation();
-        iconsetButton = button(settingsBox, "", v -> {       // tracker R42: opt-in, off by default
+        iconsetButton = button(settingsBox, "", v -> {       // tracker R42: the iconset opt-out
             Context ctx = getMapView().getContext();
             boolean on = !IconsetPref.enabled(ctx);
             IconsetPref.set(ctx, on);
