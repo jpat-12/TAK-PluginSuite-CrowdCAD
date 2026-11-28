@@ -232,6 +232,28 @@ class VersionsTest(_Base):
         self.hook._admin("view")
         self.assertEqual(self.hook._view_versions()["cloudtak_plugin"], "1.0.3")
 
+    def source_checkout(self, version="1.0.4"):
+        src = self.tmp / "src" / "cloudtak" / "plugin"
+        (src / "lib").mkdir(parents=True)
+        (self.tmp / "src" / "VERSION").write_text(version + "\n")
+        for rel, text in (("index.ts", "entry"), ("lib/a.ts", "a"), ("package.json", "{}")):
+            (src / rel).write_text(text)
+        return src
+
+    def test_unrecorded_plugin_matching_the_source_gets_its_version(self):
+        # R48: installed before install.sh wrote VERSION; same files as the server's checkout.
+        ct = self.fake_cloudtak()
+        self.source_checkout("1.0.4")
+        web = ct / "api" / "web" / "plugins" / "crowdcad"
+        (web / "lib").mkdir()
+        (web / "index.ts").write_text("entry")
+        (web / "lib" / "a.ts").write_text("a")
+        self.assertEqual(self.admin.installed_versions({})["cloudtak_plugin"], "1.0.4")
+        (web / "lib" / "a.ts").write_text("older")
+        self.assertEqual(self.admin.installed_versions({})["cloudtak_plugin"], self.admin.OUTDATED)
+        self.hook._main_version = lambda component: "1.0.4"
+        self.assertEqual(self.hook._update_check("cloudtak", self.admin.OUTDATED)["state"], "newer")
+
     def check(self, installed, main):
         self.hook._main_version = lambda component: main
         return self.hook._update_check("bridge", installed)
@@ -277,11 +299,15 @@ class PageTest(_Base):
         d = CertTest.certdir
         response = self.client.post("/crowdcad/cert", content_type="multipart/form-data", data={
             "client_p12": (io.BytesIO((d / "client.p12").read_bytes()), "global-crowdcad.p12"),
-            "client_password": "atakatak"})
+            "client_password": "atakatak"}, follow_redirects=True)
         body = response.get_data(as_text=True)
         self.assertEqual(response.status_code, 200, body)
         self.assertIn("global-crowdcad", body)
+        self.assertIn('<details class="card" id="cc-cert" open>', body)    # opened once for the result
         self.assertTrue(self.config()["tak_cert"].endswith("tak-client.pem"))
+        again = self.client.get("/crowdcad").get_data(as_text=True)          # R48: closed again on reload
+        self.assertIn('<details class="card" id="cc-cert">', again)
+        self.assertNotIn("Certificate installed", again)
 
     def test_cards_fold_closed_and_status_row_has_update_buttons(self):
         page = self.client.get("/crowdcad").get_data(as_text=True)
@@ -290,6 +316,7 @@ class PageTest(_Base):
         self.assertEqual(page.count('class="ubtn"'), 3)
         self.assertIn('name="p12_password"', page)
         self.assertIn('name="key_password"', page)
+        self.assertIn("document.querySelectorAll('.ubtn').forEach(ccCheck)", page)   # R48: checked on load
 
     def test_save_error_opens_settings(self):
         page = self.client.post("/crowdcad/settings", data={"crowdcad_url": "ftp://x"}).get_data(as_text=True)
@@ -309,7 +336,8 @@ class PageTest(_Base):
         data = {"client_p12": (io.BytesIO((d / "client.p12").read_bytes()), "global-crowdcad.p12"), **extra}
         if "client_pem" in extra:
             data["client_pem"] = (io.BytesIO((d / "client.pem").read_bytes()), "c.pem")
-        return self.client.post("/crowdcad/cert", content_type="multipart/form-data", data=data)
+        return self.client.post("/crowdcad/cert", content_type="multipart/form-data", data=data,
+                                follow_redirects=True)
 
     def test_p12_with_its_own_password_field(self):
         response = self.p12_post(p12_password="atakatak")

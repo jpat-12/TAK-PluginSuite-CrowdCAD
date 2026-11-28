@@ -28,6 +28,7 @@ Usage:  crowdcad_admin.py process      (path unit: handle every pending request,
 """
 
 import base64
+import filecmp
 import glob
 import json
 import os
@@ -281,13 +282,37 @@ def _first_line(path):
         return ""
 
 
+OUTDATED = "out of date"   # plugin version not recorded and its files differ from this server's source
+
+
+def _plugin_version_from_files(web_dir):
+    """R48: a plugin installed before cloudtak/install.sh recorded VERSION. Same files as this
+    server's source checkout → that checkout's version; different → OUTDATED; no checkout → ""."""
+    src = os.path.join(hook.HOME, "src", "cloudtak", "plugin")
+    version = _first_line(os.path.join(hook.HOME, "src", "VERSION"))
+    if not (version and os.path.isfile(os.path.join(src, "index.ts"))):
+        return ""
+    for root, _dirs, files in os.walk(src):
+        for name in files:
+            rel = os.path.relpath(os.path.join(root, name), src)
+            if rel in ("package.json", "tsconfig.json"):      # not copied into CloudTAK
+                continue
+            try:
+                if not filecmp.cmp(os.path.join(src, rel), os.path.join(web_dir, rel), shallow=False):
+                    return OUTDATED
+            except OSError:
+                return OUTDATED                                # a file the installed copy lacks
+    return version
+
+
 def installed_versions(cfg):
     """Versions the page compares with GitHub main. "" = installed, version unknown; None = not installed."""
     ct_dir = find_cloudtak(cfg)
     plugin = None
     for web in ("app/plugins/crowdcad", "api/web/plugins/crowdcad"):
         if ct_dir and os.path.isfile(os.path.join(ct_dir, web, "index.ts")):
-            plugin = _first_line(os.path.join(ct_dir, web, "VERSION"))   # written by cloudtak/install.sh since R47
+            plugin = (_first_line(os.path.join(ct_dir, web, "VERSION"))   # written by cloudtak/install.sh since R47
+                      or _plugin_version_from_files(os.path.join(ct_dir, web)))
             break
     cloudtak = ""
     if ct_dir:

@@ -239,7 +239,9 @@ form label{display:block;font-size:12px;color:var(--text-dim);margin:12px 0 4px}
 .toprow{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}.toprow .banner{flex:1 1 280px;margin:0;display:flex;align-items:center}
 .ubtn{flex:0 1 auto;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:8px 12px;color:var(--text-secondary);font:500 12px 'DM Sans',sans-serif;cursor:pointer;text-align:left;min-width:150px}
 .ubtn b{display:block;color:var(--text-primary);font-size:13px}.ubtn small{display:block;color:var(--text-dim);font-size:11px;margin-top:2px}
-.ubtn:hover{border-color:var(--cyan)}.ubtn.newer{border-color:rgba(234,179,8,.6)}.ubtn.newer small{color:var(--yellow)}.ubtn.current small{color:var(--green)}.ubtn.failed small{color:var(--red)}
+.ubtn:hover{border-color:var(--cyan)}.ubtn.failed small{color:var(--red)}
+.ubtn.current{border-color:rgba(16,185,129,.45);background:rgba(16,185,129,.08)}.ubtn.current small{color:var(--green)}
+.ubtn.newer{border-color:rgba(234,179,8,.55);background:rgba(234,179,8,.08)}.ubtn.newer small{color:var(--yellow)}
 details.card{padding:0}details.card>summary{list-style:none;cursor:pointer;padding:16px 20px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline}
 details.card>summary::-webkit-details-marker{display:none}details.card>summary::before{content:"\\25B8";color:var(--text-dim);display:inline-block;transition:transform .15s}
 details.card[open]>summary::before{transform:rotate(90deg)}details.card>summary .ttl{font-size:15px;font-weight:700}
@@ -267,8 +269,9 @@ async function ccCheck(btn) {
     const r = await fetch('/crowdcad/updates/' + encodeURIComponent(btn.dataset.c), {credentials: 'same-origin'});
     const j = await r.json();
     btn.className = 'ubtn ' + (j.state || ''); note.textContent = j.message || ('HTTP ' + r.status);
-  } catch (e) { btn.className = 'ubtn failed'; note.textContent = 'Couldn’t check — try again'; }
+  } catch (e) { btn.className = 'ubtn failed'; note.textContent = 'Couldn’t check — click to retry'; }
 }
+document.querySelectorAll('.ubtn').forEach(ccCheck);   // R48: checked on every page load; click re-checks
 </script>"""
 
 
@@ -344,6 +347,8 @@ def _update_check(component, installed):
     have, want = _vtuple(installed), _vtuple(latest)
     if installed is None:
         return {"state": "unknown", "message": f"Not installed · main has {latest}"}
+    if installed == "out of date":   # crowdcad_admin.OUTDATED (R48): files differ from the server's source
+        return {"state": "newer", "message": f"{latest} on main — update available", "latest": latest, "name": name}
     if have is None or want is None:
         return {"state": "unknown", "message": f"main has {latest}; installed version unknown"}
     if want > have:
@@ -739,7 +744,7 @@ def _register_routes(g):
     app, login_required = g["app"], g["login_required"]
     if "crowdcad_console_page" in app.view_functions:
         return
-    from flask import jsonify, redirect, request
+    from flask import jsonify, redirect, request, session
 
     def render(saved=False, error=None, cert_notice=""):
         installed, running, detail = _service_status(fresh=True)
@@ -767,7 +772,14 @@ def _register_routes(g):
                 + "</div></body></html>")
 
     def page():
-        return render(saved=request.args.get("saved") == "1")
+        notice = ""
+        try:
+            kind, message = session.pop("crowdcad_cert_notice", None) or ("", "")
+            if message:
+                notice = f'<div class="banner {E(kind)}">{E(message)}</div>'
+        except Exception as exc:   # a console without a session secret: the result just isn't shown
+            _log(f"certificate result not shown: {exc!r}")
+        return render(saved=request.args.get("saved") == "1", cert_notice=notice)
 
     def upload_cert():
         if cross_origin():
@@ -793,8 +805,12 @@ def _register_routes(g):
                 payload["truststore_password"] = request.form["truststore_password"]
             answer = _admin("cert", payload, timeout=60)
         kind = "ok" if answer.get("ok") and answer.get("connected") else "warn" if answer.get("ok") else "bad"
-        return render(cert_notice=f'<div class="banner {kind}">{E(answer.get("message") or "")}</div>'), \
-            (200 if answer.get("ok") else 400)
+        if answer.get("ok"):
+            # R48: back to the plain page (post/redirect/get), so a reload doesn't upload again and the
+            # certificate card is open only this once, to show the result.
+            session["crowdcad_cert_notice"] = [kind, answer.get("message") or ""]
+            return redirect("/crowdcad#cc-cert")
+        return render(cert_notice=f'<div class="banner {kind}">{E(answer.get("message") or "")}</div>'), 400
 
     def cross_origin():
         # Same-origin only (the console's own CSRF baseline, re-checked here because older
