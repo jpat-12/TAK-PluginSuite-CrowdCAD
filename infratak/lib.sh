@@ -13,7 +13,12 @@ warn() { echo "    ⚠ $*" >&2; }
 
 find_console_dir() {
     local d
-    for d in /opt/infra-TAK /opt/infra-tak /root/infra-TAK /root/infra-tak "$HOME/infra-TAK" "$HOME/infra-tak"; do
+    # The running console's own directory wins. infra-TAK 10.x runs from /opt/infratak (settings
+    # in its .config), while the operator's clone (e.g. /home/ubuntu/infra-TAK) is only the
+    # installer source with no settings — picking it loses the FQDN (tracker R41).
+    d="$(systemctl show -p WorkingDirectory --value "$CONSOLE_SERVICE" 2>/dev/null || true)"
+    [ -n "$d" ] && [ -f "$d/app.py" ] && { echo "$d"; return 0; }
+    for d in /opt/infratak /opt/infra-TAK /opt/infra-tak /root/infra-TAK /root/infra-tak "$HOME/infra-TAK" "$HOME/infra-tak"; do
         [ -f "$d/app.py" ] && { echo "$d"; return 0; }
     done
     d="$(find /root /home /opt -maxdepth 3 -name app.py -path '*infra*' 2>/dev/null | head -1)"
