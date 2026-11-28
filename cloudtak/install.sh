@@ -4,7 +4,8 @@
 #
 # Both halves are copied into place, because CloudTAK's WEB_PLUGINS clone can't carry a server
 # route (and nests the web entry one level too deep for Vite's `plugins/*/index.ts` glob).
-# Works with both CloudTAK source layouts (detected below):
+# Works with all three CloudTAK source layouts (detected below; 13.77.x mixes them: web half
+# under api/web/plugins/, server half under api/stateless/routes/):
 #   plugin/                 → app/plugins/crowdcad/          (13.1xx+)  or api/web/plugins/crowdcad/ (older)
 #   server/plugin-crowdcad.ts  → api/stateless/routes/       (13.1xx+)  or api/routes/            (older)
 # The bridge's public URL, board token and manage token (create/end events from TAK) are merged into <CloudTAK>/api/.env — a JSON file
@@ -49,6 +50,12 @@ CT_DIR="${CT_DIR:-$HOME/CloudTAK}"
 if [ -f "$CT_DIR/app/plugin.ts" ] && [ -d "$CT_DIR/api/stateless/routes" ]; then
     LAYOUT="split"
     WEB_DEST="$CT_DIR/app/plugins/$NAME"
+    ROUTE_DEST="$CT_DIR/api/stateless/routes/plugin-crowdcad.ts"
+elif [ -f "$CT_DIR/api/web/plugin.ts" ] && [ -d "$CT_DIR/api/stateless/routes" ]; then
+    # 13.77.x (infra-TAK 10.3.x ships it): the routes had moved to stateless/ but the web app
+    # hadn't yet moved out of api/web (tracker R41).
+    LAYOUT="web+stateless"
+    WEB_DEST="$CT_DIR/api/web/plugins/$NAME"
     ROUTE_DEST="$CT_DIR/api/stateless/routes/plugin-crowdcad.ts"
 elif [ -f "$CT_DIR/api/web/plugin.ts" ] && [ -d "$CT_DIR/api/routes" ]; then
     LAYOUT="legacy"
@@ -106,7 +113,7 @@ if [ "$ACTION" = "install" ]; then
     rm -rf "$WEB_DEST"
     mkdir -p "$WEB_DEST"
     cp -r "$HERE/plugin/index.ts" "$HERE/plugin/components" "$HERE/plugin/lib" "$WEB_DEST/"
-    if [ "$LAYOUT" = "split" ]; then
+    if [ "$LAYOUT" != "legacy" ]; then   # stateless routes import ../../common/auth.js, ../config.js
         sed -e "s#from '../lib/auth.js'#from '../../common/auth.js'#"             -e "s#^import Config from '../lib/config.js';#import type Config from '../config.js';#"             "$HERE/server/plugin-crowdcad.ts" > "$ROUTE_DEST"
     else
         cp "$HERE/server/plugin-crowdcad.ts" "$ROUTE_DEST"
