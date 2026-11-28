@@ -71,7 +71,8 @@ In order (see the header of [`infratak/install.sh`](../../infratak/install.sh)):
 2. **TAK client certificate:** runs TAK's `makeCert.sh client crowdcad` once (never a second
    time), copies `crowdcad.pem` / `.key` to `/opt/crowdcad-tak/certs/` (0640, group
    `crowdcad-tak`), copies TAK's CA (`/opt/tak/certs/files/ca.pem`, or `--tak-ca`), and puts the
-   cert in each `--tak-group` with `UserManager.jar certmod`.
+   cert in each `--tak-group` with `UserManager.jar certmod`. If CoreConfig.xml uses LDAP auth
+   (TAK Portal), it makes no TAK user and ignores `--tak-group` (R44): see [TAK groups](#tak-groups).
 3. **Settings:** seeds `config.json` and `secrets.json` once. It reads the key passphrase from
    TAK's `cert-metadata.sh`, and generates a random `board_token` and `manage_token`. It never
    overwrites values already set.
@@ -144,7 +145,7 @@ taps. Symptom: units on the dispatcher board stay *not heard yet*.
 
 - **File-based groups:** `--tak-group <group>` (repeatable) does it with `UserManager.jar`.
 - **TAK Portal / LDAP groups** (`<auth default="ldap" x509groups="true">`): groups come from the
-  directory, so `--tak-group` has no effect. Create a TAK Portal **Global** integration for the
+  directory, so the installer skips `--tak-group` and makes no TAK user. Create a TAK Portal **Global** integration for the
   bridge (no streaming data feed, the devices' groups) and upload its `.p12` (or `.pem` + `.key`),
   its password and the truststore on the console's **CrowdCAD → TAK certificate** card: it checks
   them, installs them, points the bridge at them and restarts it (tracker R43). By hand instead:

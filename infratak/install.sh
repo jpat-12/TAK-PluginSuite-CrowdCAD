@@ -11,7 +11,9 @@
 #   2. Its own TAK client certificate, `crowdcad`, made with TAK Server's makeCert.sh — the
 #      same least-privilege pattern infra-TAK uses for Node-RED's nodered.pem — and put in the
 #      TAK groups given with --tak-group. Without a group, TAK Server puts the bridge in
-#      __ANON__ and no device in a real group sees its markers.
+#      __ANON__ and no device in a real group sees its markers. With TAK Portal (LDAP auth in
+#      CoreConfig.xml) no TAK user is made: the bridge uses a TAK Portal integration's cert,
+#      uploaded on the console page, and --tak-group is ignored (R44).
 #   3. The console integration (dashboard card, sidebar link, /crowdcad status + settings
 #      page) is an import hook in the console's site-packages, never an app.py patch: infra-TAK's
 #      "Update Now" runs `git checkout --force`, which erases app.py edits.
@@ -26,7 +28,8 @@
 #
 # Options:
 #   --tak-group NAME       TAK group the bridge publishes into (repeatable; default: none, which
-#                          means __ANON__ — set this to the group your medics' devices are in)
+#                          means __ANON__ — set this to the group your medics' devices are in).
+#                          File-auth TAK only; ignored when TAK Portal / LDAP manages groups
 #   --crowdcad-url URL     seed the CrowdCAD PocketBase URL (else set it on the console page)
 #   --tak-ca PATH          CA that signed TAK Server's 8089 cert (default /opt/tak/certs/files/ca.pem)
 #   --console-hook MODE    pth (default) | append (guarded block in app.py; re-added after
@@ -151,7 +154,15 @@ if [ -s "$CA_SRC" ]; then
 else
     warn "TAK CA $CA_SRC not found — pass --tak-ca, or the bridge can't verify TAK Server."
 fi
-if [ "${#TAK_GROUPS[@]}" -gt 0 ] && [ -f /opt/tak/utils/UserManager.jar ] && [ -s "$CERT_FILES/crowdcad.pem" ]; then
+# Tracker R44: with TAK Portal / LDAP auth, groups belong to the TAK Portal integration, never to a
+# file-auth user made here (UserManager certmod would add an unused `crowdcad` user to
+# UserAuthenticationFile.xml). File-auth TAK Servers still get --tak-group via UserManager.
+TAK_CORECONFIG="${TAK_CORECONFIG:-/opt/tak/CoreConfig.xml}"
+if [ -f "$TAK_CORECONFIG" ] && grep -Eq '<auth[^>]*default="ldap"' "$TAK_CORECONFIG"; then
+    log "TAK Server uses TAK Portal / LDAP groups: no TAK user made here"
+    [ "${#TAK_GROUPS[@]}" -eq 0 ] || warn "--tak-group ignored: set the group on the bridge's TAK Portal integration."
+    log "Upload that integration's .p12 on infra-TAK → CrowdCAD → TAK certificate (skip if already done)."
+elif [ "${#TAK_GROUPS[@]}" -gt 0 ] && [ -f /opt/tak/utils/UserManager.jar ] && [ -s "$CERT_FILES/crowdcad.pem" ]; then
     cmd=(java -jar /opt/tak/utils/UserManager.jar certmod)
     for g in "${TAK_GROUPS[@]}"; do cmd+=(-g "$g"); done
     um_dir="$(mktemp -d)"
