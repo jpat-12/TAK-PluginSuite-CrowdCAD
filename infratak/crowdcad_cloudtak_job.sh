@@ -25,6 +25,9 @@
 set -uo pipefail
 
 CROWDCAD_HOME="${CROWDCAD_HOME:-/opt/crowdcad-tak}"
+# systemd-run gives the job an empty HOME; cloudtak/install.sh falls back to $HOME/CloudTAK when
+# it can't find the running container, and infra-TAK puts CloudTAK in /root/CloudTAK.
+[ -n "${HOME:-}" ] || export HOME=/root
 DATA="$CROWDCAD_HOME/data"
 SRC="${CROWDCAD_SRC:-$CROWDCAD_HOME/src}"
 HEALTH_URL="${CLOUDTAK_HEALTH_URL:-http://127.0.0.1:5000/api/server}"
