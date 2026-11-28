@@ -181,6 +181,17 @@ class ConsoleJobTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.hook.DATA_DIR = self.tmp.name
         self.hook.HOME = "/opt/crowdcad-tak"
+        # Tracker R43: the page's root work goes through crowdcad_admin.py; run it in-process here.
+        sys.path.insert(0, str(INFRATAK))
+        try:
+            admin = importlib.reload(importlib.import_module("crowdcad_admin"))
+        finally:
+            sys.path.remove(str(INFRATAK))
+        self.hook._ADMIN_INLINE = admin.run
+        console = Path(self.tmp.name, "console")
+        console.mkdir()
+        self.hook.CONSOLE_DIR = str(console)
+        self.hook._job_log = lambda: str(Path(self.tmp.name, "cloudtak-install.log"))
         self.calls, self.procs = [], []
         test = self
 

@@ -118,7 +118,7 @@ cp -a "$SRC/bridge/crowdcad_tak" "$CROWDCAD_HOME/app/crowdcad_tak"
 cp "$SRC/VERSION" "$CROWDCAD_HOME/app/VERSION"
 find "$CROWDCAD_HOME/app" -name __pycache__ -prune -exec rm -rf {} +
 for f in crowdcad_infratak.py crowdcad_infratak_boot.py crowdcad_infratak.pth crowdcad_caddy.py crowdcad_app.py lib.sh heal.sh uninstall.sh \
-         crowdcad_cloudtak_job.sh; do   # the last one runs the console's CloudTAK install button (R41)
+         crowdcad_cloudtak_job.sh crowdcad_admin.py; do   # job: the CloudTAK button (R41); admin: root helper (R43)
     install -m 0755 "$SRC/infratak/$f" "$CROWDCAD_HOME/bin/$f"
 done
 mkdir -p "$CROWDCAD_HOME/bin/pb_hooks"
@@ -233,6 +233,25 @@ if [ "$HOOK_MODE" = "pth" ]; then
 fi
 if [ "$HOOK_MODE" = "append" ]; then
     install_append_hook "$CONSOLE_DIR" && log "Console hook block added to $CONSOLE_DIR/app.py"
+fi
+# Tracker R43: infra-TAK 10.x runs the console as takwerx, not root. The CrowdCAD page hands its
+# root work (settings, TAK certificate upload, CloudTAK install) to bin/crowdcad_admin.py through
+# $CROWDCAD_HOME/console, which only root and the console's group can enter.
+if [ "$HOOK_MODE" != "none" ]; then
+    CONSOLE_GROUP="$(systemctl show -p Group --value "$CONSOLE_SERVICE" 2>/dev/null || true)"
+    if [ -z "$CONSOLE_GROUP" ]; then
+        console_user="$(systemctl show -p User --value "$CONSOLE_SERVICE" 2>/dev/null || true)"
+        CONSOLE_GROUP="$( [ -n "$console_user" ] && id -gn "$console_user" 2>/dev/null || echo root)"
+    fi
+    mkdir -p "$CROWDCAD_HOME/console"
+    chown root:"$CONSOLE_GROUP" "$CROWDCAD_HOME/console"
+    chmod 2770 "$CROWDCAD_HOME/console"
+    install -m 0644 "$SRC/infratak/systemd/crowdcad-tak-admin.path" /etc/systemd/system/crowdcad-tak-admin.path
+    install -m 0644 "$SRC/infratak/systemd/crowdcad-tak-admin.service" /etc/systemd/system/crowdcad-tak-admin.service
+    systemctl daemon-reload
+    systemctl enable --quiet --now crowdcad-tak-admin.path
+    python3 "$CROWDCAD_HOME/bin/crowdcad_admin.py" view || warn "Console view not written (see above)."
+    log "Console helper ready (console group: $CONSOLE_GROUP)"
 fi
 
 # --- 5b. CrowdCAD itself (--with-crowdcad, or kept running from an earlier install) -------------

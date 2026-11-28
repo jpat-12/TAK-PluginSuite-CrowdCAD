@@ -38,6 +38,11 @@ Facts an agent needs that the code can't show. Workspace-wide rules: `../CLAUDE.
   without updating the PHI tests (bridge, board, ATAK fixture). age/gender/notes/log/members never go out.
 
 ## infra-TAK rules (same as Aleph)
+- **The console may not be root (R43).** infra-TAK 10.x runs it as `takwerx` (`User=` in
+  takwerx-console.service, settings in `/opt/infratak/.config`). Never do root work in
+  `crowdcad_infratak.py` directly: send it to `bin/crowdcad_admin.py` with `_admin(action, payload)`
+  (request files in `/opt/crowdcad-tak/console/`, run by `crowdcad-tak-admin.path`; a root
+  console runs the helper itself). The page reads config/flags from `console/view.json`.
 - Never patch infra-TAK's `app.py` by default: "Update Now" (`git checkout --force`) erases it.
 - The boot finder must delegate to later meta-path finders, not PathFinder directly, or it
   bypasses Aleph's hook (`test_every_version_gets_the_integration` checks both attach).

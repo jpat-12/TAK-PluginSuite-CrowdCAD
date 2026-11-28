@@ -1,0 +1,13 @@
+# The infra-TAK console's CrowdCAD page drops requests (save settings, install a TAK client
+# certificate, start the CloudTAK plugin install) into /opt/crowdcad-tak/console/ as *.req; this
+# starts the root helper that carries them out (tracker R43). Needed because infra-TAK 10.x runs
+# its console as the unprivileged takwerx user.
+[Unit]
+Description=Watch for CrowdCAD requests from the infra-TAK console
+
+[Path]
+PathExistsGlob=/opt/crowdcad-tak/console/*.req
+Unit=crowdcad-tak-admin.service
+
+[Install]
+WantedBy=multi-user.target

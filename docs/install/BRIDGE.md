@@ -145,7 +145,10 @@ taps. Symptom: units on the dispatcher board stay *not heard yet*.
 - **File-based groups:** `--tak-group <group>` (repeatable) does it with `UserManager.jar`.
 - **TAK Portal / LDAP groups** (`<auth default="ldap" x509groups="true">`): groups come from the
   directory, so `--tak-group` has no effect. Create a TAK Portal **Global** integration for the
-  bridge (no streaming data feed, the devices' groups), download its cert and key, copy them to
+  bridge (no streaming data feed, the devices' groups) and upload its `.p12` (or `.pem` + `.key`),
+  its password and the truststore on the console's **CrowdCAD → TAK certificate** card: it checks
+  them, installs them, points the bridge at them and restarts it (tracker R43). By hand instead:
+  download its cert and key, copy them to
   `/opt/crowdcad-tak/certs/` (owner `root:crowdcad-tak`, mode 0640), set `tak_cert` / `tak_key`
   in `config.json` and the key's passphrase in `tak_key_password`, and restart. If the
   integration is brand new, TAK may cache "no groups" for the first connection: restart once

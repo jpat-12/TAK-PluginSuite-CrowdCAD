@@ -11,7 +11,13 @@ exists in this version*:
 Same mechanism as InfraTAK-Plugin-Aleph (see crowdcad_infratak_boot.py for why app.py is never
 patched). Each piece is wrapped separately so one failure can't take the others — or the
 console — down. Runs inside the console's own Python: stdlib only, plus the Flask objects the
-console hands us. The console runs as root, which is how it can write the bridge's secrets.
+console hands us.
+
+Root or not (tracker R43): infra-TAK 0.x runs the console as root; 10.x runs it as `takwerx`.
+Everything that needs root — saving settings/secrets, installing a TAK client certificate,
+starting the CloudTAK job — is a request to bin/crowdcad_admin.py (run directly by a root
+console, by crowdcad-tak-admin.path otherwise) through <HOME>/console/. The page reads what it
+shows from console/view.json, which that helper writes.
 """
 
 import html
@@ -22,12 +28,16 @@ import shlex
 import shutil
 import subprocess
 import sys
+import base64
 import time
 import urllib.parse
 import urllib.request
+import uuid
 
 HOME = os.environ.get("CROWDCAD_TAK_HOME", "/opt/crowdcad-tak")
 DATA_DIR = os.path.join(HOME, "data")
+CONSOLE_DIR = os.path.join(HOME, "console")      # requests/answers/view shared with the root helper (R43)
+ADMIN = os.path.join(HOME, "bin", "crowdcad_admin.py")
 UNIT = "/etc/systemd/system/crowdcad-tak.service"
 SERVICE_USER = "crowdcad-tak"
 
@@ -59,6 +69,78 @@ def _write_json(path, value, mode):
     except (ImportError, KeyError, OSError):
         pass  # dev box / not installed: the file still lands, the service just can't read it
     os.replace(tmp, path)
+
+
+def _write_console_file(path, text):
+    """A file the console (maybe non-root) reads: 0640, group = the console dir's group (setgid)."""
+    tmp = path + ".tmp"
+    with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o640), "w", encoding="utf-8") as stream:
+        stream.write(text)
+    try:
+        os.chown(tmp, -1, os.stat(os.path.dirname(path)).st_gid)
+    except (AttributeError, OSError):
+        pass
+    os.replace(tmp, path)
+
+
+_ADMIN_INLINE = None   # tests set this to crowdcad_admin.run
+
+
+def _is_root():
+    return hasattr(os, "geteuid") and os.geteuid() == 0
+
+
+def _admin(action, payload=None, timeout=45, wait=True):
+    """Ask the root helper (tracker R43). → {"ok": bool, "message": str, ...}."""
+    if not os.path.isdir(CONSOLE_DIR):
+        if not _is_root():
+            return {"ok": False, "message": "This CrowdCAD install predates the console helper — re-run "
+                                            "sudo bash /opt/crowdcad-tak/src/install.sh on the server."}
+        os.makedirs(CONSOLE_DIR, mode=0o2770, exist_ok=True)
+    rid = uuid.uuid4().hex
+    req = os.path.join(CONSOLE_DIR, rid + ".req")
+    res = os.path.join(CONSOLE_DIR, rid + ".res")
+    tmp = req + ".tmp"   # not *.req until complete, so the path unit never sees half a file
+    with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as stream:
+        json.dump({"action": action, "payload": payload or {}}, stream)
+    os.replace(tmp, req)
+    if _ADMIN_INLINE is not None:            # tests: run the helper in-process
+        _ADMIN_INLINE(req)
+    elif _is_root() and os.path.exists(ADMIN):
+        subprocess.run([sys.executable, ADMIN, "run", req], capture_output=True, timeout=max(timeout, 30))
+    if not wait:
+        return {"ok": True, "message": "queued"}
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if os.path.exists(res):
+            answer = _read_json(res)
+            try:
+                os.remove(res)
+            except OSError:
+                pass
+            return answer or {"ok": False, "message": "empty answer from the helper"}
+        time.sleep(0.25)
+    try:
+        os.remove(req)
+    except OSError:
+        pass
+    return {"ok": False, "message": "The CrowdCAD helper didn't answer. On the server: "
+                                    "systemctl status crowdcad-tak-admin.path (re-run install.sh if it's missing)."}
+
+
+def _view(refresh=False):
+    """(config, secrets-for-display, cert info) for the page (R43): direct for a root console,
+    else console/view.json from the helper (refreshed in the background on each page load)."""
+    if refresh:
+        try:
+            _admin("view", wait=_is_root(), timeout=10)
+        except Exception as error:
+            _log(f"view refresh skipped: {error!r}")
+    view = _read_json(os.path.join(CONSOLE_DIR, "view.json"))
+    if _is_root() and not view:
+        return (_read_json(os.path.join(DATA_DIR, "config.json")),
+                _read_json(os.path.join(DATA_DIR, "secrets.json")), {})
+    return view.get("config") or {}, view.get("secrets") or {}, view.get("cert") or {}
 
 
 def _service_status(fresh=False):
@@ -275,7 +357,8 @@ _EXIT = re.compile(r"^==> EXIT (\d+)")
 
 
 def _job_log():
-    return os.path.join(DATA_DIR, "cloudtak-install.log")
+    # console/ so a non-root console can read it (R43); data/ on installs from before the helper.
+    return os.path.join(CONSOLE_DIR if os.path.isdir(CONSOLE_DIR) else DATA_DIR, "cloudtak-install.log")
 
 
 def _job_active():
@@ -427,6 +510,32 @@ ccShow(ccInitial);
 </script>"""
 
 
+def _cert_html(cert, notice):
+    """Tracker R43: upload the bridge's TAK client certificate (e.g. a TAK Portal integration's)."""
+    now = (f'<div class="grid"><div class="item"><div class="label">Connects to TAK as</div><div class="value">'
+           f'{E(cert.get("subject") or "—")}</div></div><div class="item"><div class="label">Expires</div>'
+           f'<div class="value">{E(cert.get("expires") or "—")}</div></div><div class="item"><div class="label">'
+           f'File</div><div class="value">{E(cert.get("path") or "—")}</div></div></div>')
+    return f"""<div class="card" id="cc-cert"><h2>TAK certificate</h2>{notice}{now}
+<div class="dim">On a TAK Server whose users come from TAK Portal / LDAP, the bridge's groups come from its
+certificate's LDAP identity, so use a TAK Portal <b>Global</b> integration made for the bridge (in the medics'
+group) — the certificate the installer makes with makeCert.sh has no LDAP identity there.
+Upload its <code>.p12</code> (or the <code>.pem</code> + <code>.key</code>), and optionally the truststore.</div>
+<form method="post" action="/crowdcad/cert" enctype="multipart/form-data">
+<label>Client certificate (.p12)</label><input type="file" name="client_p12" accept=".p12,.pfx">
+<label>— or — certificate (.pem) and key (.key)</label>
+<input type="file" name="client_pem" accept=".pem,.crt"> <input type="file" name="client_key" accept=".key,.pem">
+<label>Password (for the .p12, or for the key if it's encrypted)</label>
+<input type="password" name="client_password" autocomplete="off">
+<label>Truststore (.p12) or CA (.pem) — optional; leave empty to keep the current CA</label>
+<input type="file" name="truststore_p12" accept=".p12,.pfx"> <input type="file" name="ca_pem" accept=".pem,.crt">
+<label>Truststore password</label><input type="password" name="truststore_password" autocomplete="off" placeholder="often atakatak">
+<button class="btn" type="submit">Install certificate and restart bridge</button></form>
+<div class="dim">Checked before anything is replaced: the key must match the certificate and the passwords must
+open them. The old files stay in /opt/crowdcad-tak/certs. If TAK still says not connected with a brand-new
+integration, restart the bridge once more after a minute (TAK caches "no groups" on the first connection).</div></div>"""
+
+
 def _parse_settings(form, cfg, secrets):
     """→ (config, secrets, error). Validates before anything is written."""
     cfg = dict(cfg)
@@ -478,7 +587,7 @@ def _register_routes(g):
         return
     from flask import jsonify, redirect, request
 
-    def render(saved=False, error=None):
+    def render(saved=False, error=None, cert_notice=""):
         installed, running, detail = _service_status(fresh=True)
         sidebar = ""
         try:
@@ -486,16 +595,37 @@ def _register_routes(g):
                 sidebar = g["render_sidebar"](g["detect_modules"](), "crowdcad")
         except Exception as exc:
             _log(f"sidebar unavailable on this page: {exc!r}")
-        cfg = _read_json(os.path.join(DATA_DIR, "config.json"))
-        secrets = _read_json(os.path.join(DATA_DIR, "secrets.json"))
+        cfg, secrets, cert = _view(refresh=True)
         problem = f'<div class="banner bad">{E(error)}</div>' if error else ""
+        if not cfg and not _is_root():
+            problem += ('<div class="banner warn">Settings unavailable: the console runs without root and the '
+                        'CrowdCAD helper hasn\'t answered yet. Reload in a few seconds; if this stays, re-run '
+                        '<code>sudo bash /opt/crowdcad-tak/src/install.sh</code> on the server.</div>')
         return (HEAD + sidebar + '<div class="main"><h1>CrowdCAD for TAK</h1>'
                 '<div class="sub">CrowdCAD event-medical dispatch on the TAK map: calls, teams and venue zones, '
                 'live, in IU Event CAD\'s CoT format.</div>' + problem + _status_html(installed, running, detail)
-                + _settings_html(cfg, secrets, saved) + _cloudtak_html(cfg, secrets) + "</div></body></html>")
+                + _cert_html(cert, cert_notice) + _settings_html(cfg, secrets, saved) + _cloudtak_html(cfg, secrets)
+                + "</div></body></html>")
 
     def page():
         return render(saved=request.args.get("saved") == "1")
+
+    def upload_cert():
+        if cross_origin():
+            return "Cross-origin request refused", 403
+        payload = {}
+        for name in ("client_p12", "client_pem", "client_key", "truststore_p12", "ca_pem"):
+            upload = request.files.get(name)
+            data = upload.read(64 * 1024 + 1) if upload else b""
+            if data:
+                payload[name] = base64.b64encode(data).decode()
+        for name in ("client_password", "truststore_password"):
+            if request.form.get(name):
+                payload[name] = request.form[name]
+        answer = _admin("cert", payload, timeout=60)
+        kind = "ok" if answer.get("ok") and answer.get("connected") else "warn" if answer.get("ok") else "bad"
+        return render(cert_notice=f'<div class="banner {kind}">{E(answer.get("message") or "")}</div>'), \
+            (200 if answer.get("ok") else 400)
 
     def cross_origin():
         # Same-origin only (the console's own CSRF baseline, re-checked here because older
@@ -506,19 +636,14 @@ def _register_routes(g):
     def cloudtak_install():
         if cross_origin():
             return jsonify(error="Cross-origin request refused"), 403
-        cfg = _read_json(os.path.join(DATA_DIR, "config.json"))
-        secrets = _read_json(os.path.join(DATA_DIR, "secrets.json"))
-        if not (cfg.get("public_url") and secrets.get("board_token")):
-            return jsonify(error="The board isn't published yet — run the server install first."), 400
         ct_dir = request.form.get("cloudtak_dir", "").strip().rstrip("/")
         if ct_dir and (not _SAFE_DIR.match(ct_dir) or ".." in ct_dir.split("/")):
             return jsonify(error="CloudTAK directory must be an absolute path like /root/CloudTAK"), 400
-        if ct_dir != (cfg.get("cloudtak_dir") or ""):
-            cfg["cloudtak_dir"] = ct_dir
-            _write_json(os.path.join(DATA_DIR, "config.json"), cfg, 0o640)
-        problem = _start_job(ct_dir)
-        if problem:
-            return jsonify(error=problem, status=_cloudtak_status()), 409
+        answer = _admin("cloudtak", {"dir": ct_dir}, timeout=30)   # the root helper re-checks it all (R43)
+        if not answer.get("ok"):
+            message = answer.get("message") or "couldn't start"
+            code = 400 if "published" in message else 409
+            return jsonify(error=message, status=_cloudtak_status()), code
         return jsonify(ok=True, status=_cloudtak_status())
 
     def cloudtak_status():
@@ -527,20 +652,15 @@ def _register_routes(g):
     def save():
         if cross_origin():
             return "Cross-origin request refused", 403
-        cfg = _read_json(os.path.join(DATA_DIR, "config.json"))
-        secrets = _read_json(os.path.join(DATA_DIR, "secrets.json"))
-        cfg, secrets, error = _parse_settings(request.form, cfg, secrets)
-        if error:
-            return render(error=error), 400
-        os.makedirs(DATA_DIR, exist_ok=True)
-        _write_json(os.path.join(DATA_DIR, "config.json"), cfg, 0o640)
-        _write_json(os.path.join(DATA_DIR, "secrets.json"), secrets, 0o600)
-        subprocess.run(["systemctl", "restart", "crowdcad-tak"], capture_output=True, timeout=30)
+        answer = _admin("settings", {"form": request.form.to_dict()})   # root helper writes + restarts (R43)
+        if not answer.get("ok"):
+            return render(error=answer.get("message") or "not saved"), 400
         time.sleep(1.5)  # let the bridge's status endpoint come back before we render it
         return redirect("/crowdcad?saved=1")
 
     app.add_url_rule("/crowdcad", "crowdcad_console_page", login_required(page))
     app.add_url_rule("/crowdcad/settings", "crowdcad_console_settings", login_required(save), methods=["POST"])
+    app.add_url_rule("/crowdcad/cert", "crowdcad_console_cert", login_required(upload_cert), methods=["POST"])
     app.add_url_rule("/crowdcad/cloudtak/install", "crowdcad_console_cloudtak_install",
                      login_required(cloudtak_install), methods=["POST"])
     app.add_url_rule("/crowdcad/cloudtak/status", "crowdcad_console_cloudtak_status", login_required(cloudtak_status))

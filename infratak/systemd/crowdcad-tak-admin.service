@@ -1,0 +1,8 @@
+[Unit]
+Description=Carry out CrowdCAD requests from the infra-TAK console (settings, TAK certificate, CloudTAK plugin)
+# Every page load asks for a fresh view, so don't let systemd's start limit lock the helper out.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/crowdcad-tak/bin/crowdcad_admin.py process

@@ -46,6 +46,17 @@ class HookPageTest(unittest.TestCase):
         self.restarts = []
         self.hook.subprocess = type("S", (), {"run": lambda _, args, **k: self.restarts.append(args)})()
         self.hook.time.sleep = lambda s: None
+        # Tracker R43: saving goes through the root helper (crowdcad_admin.py); run it in-process.
+        sys.path.insert(0, str(INFRATAK))
+        try:
+            admin = importlib.import_module("crowdcad_admin")
+        finally:
+            sys.path.remove(str(INFRATAK))
+        admin.subprocess = self.hook.subprocess
+        console = Path(self.tmp.name, "console")
+        console.mkdir()
+        self.hook.CONSOLE_DIR = str(console)
+        self.hook._ADMIN_INLINE = admin.run
         self.hook._service_status = lambda fresh=False: (True, True, {
             "version": "0.1.0", "crowdcad": {"mode": "live", "url": "http://pb:8090"},
             "tak": {"connected": True, "host": "127.0.0.1:8089", "sent": 12},

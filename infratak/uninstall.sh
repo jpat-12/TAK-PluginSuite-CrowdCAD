@@ -37,6 +37,9 @@ done
 # Heal first, or it would re-add the hook we remove below.
 systemctl disable --now crowdcad-tak-heal.path 2>/dev/null
 rm -f /etc/systemd/system/crowdcad-tak-heal.path /etc/systemd/system/crowdcad-tak-heal.service
+systemctl disable --now crowdcad-tak-admin.path 2>/dev/null   # console helper (R43)
+rm -f /etc/systemd/system/crowdcad-tak-admin.path /etc/systemd/system/crowdcad-tak-admin.service
+rm -rf "${CROWDCAD_HOME:-/opt/crowdcad-tak}/console"
 
 [ -f "$CROWDCAD_HOME/bin/crowdcad_caddy.py" ] && python3 "$CROWDCAD_HOME/bin/crowdcad_caddy.py" remove --reload
 if [ "$CROWDCAD" -eq 1 ]; then
