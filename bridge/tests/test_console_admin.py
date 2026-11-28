@@ -275,6 +275,78 @@ class VersionsTest(_Base):
         self.assertEqual(self.hook._update_check("crowdcad", "v1.6.0")["state"], "failed")
 
 
+class UpdateTest(_Base):
+    """Tracker R49: "Install update" — the helper rebuilds this server's install options and starts the job."""
+
+    def setUp(self):
+        super().setUp()
+        self.started = []
+        self.hook._start_update_job = lambda component, args: self.started.append((component, args))
+        self.admin.CLOUDTAK_GUESSES = []
+        self.admin.WEBTAK_PLUGIN = str(self.tmp / "no-webtak")
+
+    def test_bridge_update_keeps_this_servers_options(self):
+        (self.tmp / "crowdcad").mkdir()
+        (self.tmp / "crowdcad" / "app.json").write_text("{}")
+        (self.tmp / "webtak").mkdir()
+        self.admin.WEBTAK_PLUGIN = str(self.tmp / "webtak")
+        self.assertTrue(self.hook._admin("update", {"component": "bridge"})["ok"])
+        self.assertEqual(self.started, [("bridge", ["--domain", "cc.example.org", "--webtak"])])
+
+    def test_crowdcad_elsewhere_is_never_built_here(self):
+        self.hook._admin("update", {"component": "bridge"})
+        self.assertIn("--no-crowdcad", self.started[0][1])
+        answer = self.hook._admin("update", {"component": "crowdcad"})
+        self.assertFalse(answer["ok"])
+        self.assertIn("isn't installed", answer["message"])
+
+    def test_cloudtak_update_rebuilds_the_found_cloudtak(self):
+        ct = self.tmp / "CloudTAK"
+        (ct / "app").mkdir(parents=True)
+        (ct / "app" / "plugin.ts").write_text("")
+        self.admin.CLOUDTAK_GUESSES = [str(ct)]
+        self.assertTrue(self.hook._admin("update", {"component": "cloudtak"})["ok"])
+        self.assertEqual(self.started[0][1][-2:], ["--cloudtak", str(ct)])
+
+    def test_refused_while_another_job_runs_and_for_unknown_components(self):
+        self.hook._update_status = lambda: {"state": "running"}
+        self.assertIn("already running", self.hook._admin("update", {"component": "bridge"})["message"])
+        self.assertFalse(self.hook._admin("update", {"component": "rm -rf"})["ok"])
+        self.assertEqual(self.started, [])
+
+    def test_log_parsing(self):
+        parse = self.hook._parse_update
+        self.assertEqual(parse(None, False)["state"], "idle")
+        running = parse("==> Update started 2026-11-28T03:00:00Z: cloudtak\n==> Getting main from GitHub\n", True)
+        self.assertEqual((running["state"], running["component"], running["label"]),
+                         ("running", "cloudtak", "Getting main from GitHub"))
+        failed = parse("==> Update started x: bridge\n==> ERROR couldn't reach GitHub\n==> EXIT 1\n", False)
+        self.assertEqual((failed["state"], failed["error"]), ("failed", "couldn't reach GitHub"))
+        self.assertEqual(parse("==> Done: bridge 1.0.6 is running\n==> EXIT 0\n", False)["state"], "done")
+        self.assertEqual(parse("==> Installing\n", False)["state"], "failed")     # job gone without EXIT
+
+    def versions(self, **found):
+        self.hook._main_version = lambda component: found[component.replace("-", "_")]
+
+    def test_newer_is_installable_with_a_confirmation(self):
+        self.versions(bridge="1.0.6")
+        got = self.hook._update_check("bridge", "1.0.5")
+        self.assertTrue(got["installable"])
+        self.assertIn("1.0.6", got["confirm"])
+        self.assertNotIn("installable", self.hook._update_check("bridge", "1.0.6"))
+
+    def test_crowdcad_installs_only_what_the_bridge_supports(self):
+        self.versions(crowdcad="1.7.0", crowdcad_supported="v1.6.0")
+        held = self.hook._update_check("crowdcad", "v1.6.0")
+        self.assertEqual(held["state"], "held")
+        self.assertNotIn("installable", held)
+        self.versions(crowdcad="1.7.0", crowdcad_supported="v1.7.0")
+        got = self.hook._update_check("crowdcad", "v1.6.0")
+        self.assertEqual((got["state"], got["latest"]), ("newer", "v1.7.0"))
+        self.versions(crowdcad="1.6.0", crowdcad_supported="v1.6.0")
+        self.assertEqual(self.hook._update_check("crowdcad", "v1.6.0")["state"], "current")
+
+
 @unittest.skipUnless(flask and OPENSSL, "Flask or openssl not installed")
 class PageTest(_Base):
     def setUp(self):
@@ -321,6 +393,18 @@ class PageTest(_Base):
     def test_save_error_opens_settings(self):
         page = self.client.post("/crowdcad/settings", data={"crowdcad_url": "ftp://x"}).get_data(as_text=True)
         self.assertIn('<details class="card" id="cc-settings" open>', page)
+
+    def test_install_route_starts_the_job_and_refuses_other_sites(self):
+        started = []
+        self.hook._start_update_job = lambda component, args: started.append(component)
+        self.admin.CLOUDTAK_GUESSES = []
+        response = self.client.post("/crowdcad/updates/bridge/install")
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(started, ["bridge"])
+        self.assertEqual(self.client.post("/crowdcad/updates/bridge/install",
+                                          headers={"Origin": "https://evil.example.com"}).status_code, 403)
+        self.assertEqual(self.client.get("/crowdcad/update-job").get_json()["state"], "idle")
+        self.assertIn('id="cc-upd" hidden', self.client.get("/crowdcad").get_data(as_text=True))
 
     def test_update_route(self):
         self.hook._main_version = lambda component: "9.9.9"

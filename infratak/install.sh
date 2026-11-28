@@ -121,7 +121,9 @@ cp -a "$SRC/bridge/crowdcad_tak" "$CROWDCAD_HOME/app/crowdcad_tak"
 cp "$SRC/VERSION" "$CROWDCAD_HOME/app/VERSION"
 find "$CROWDCAD_HOME/app" -name __pycache__ -prune -exec rm -rf {} +
 for f in crowdcad_infratak.py crowdcad_infratak_boot.py crowdcad_infratak.pth crowdcad_caddy.py crowdcad_app.py lib.sh heal.sh uninstall.sh \
-         crowdcad_cloudtak_job.sh crowdcad_admin.py; do   # job: the CloudTAK button (R41); admin: root helper (R43)
+         crowdcad_cloudtak_job.sh crowdcad_admin.py crowdcad_update_job.sh; do
+    # job: the CloudTAK button (R41); admin: root helper (R43); update job: the Install update buttons (R49).
+    # `install` unlinks before writing, so a job script that is running while this replaces it keeps its old copy.
     install -m 0755 "$SRC/infratak/$f" "$CROWDCAD_HOME/bin/$f"
 done
 mkdir -p "$CROWDCAD_HOME/bin/pb_hooks"

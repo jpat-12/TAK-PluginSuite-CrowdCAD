@@ -48,6 +48,13 @@ Facts an agent needs that the code can't show. Workspace-wide rules: `../CLAUDE.
   GitHub **main** only (`UPDATE_SOURCES`), so main must get each release or installs read "newer than main".
   CloudTAK is found by `crowdcad_admin.find_cloudtak` (no folder field unless nothing is found);
   `cloudtak/install.sh` writes the plugin's `VERSION` next to it for the page.
+- **Install update (R49):** a yellow button → yes/no panel → helper action `update` →
+  `bin/crowdcad_update_job.sh` (unit `crowdcad-update`, log `console/update.log`): backup, source to
+  **main** (refuses local changes), `install.sh --no-pull` with options rebuilt by
+  `crowdcad_admin.update_args` (domain, `--webtak` if installed, `--no-crowdcad` if CrowdCAD runs
+  elsewhere; `--cloudtak DIR` / `--crowdcad-ref <main's DEFAULT_REF>` per component). CrowdCAD only
+  ever updates to the release main's `crowdcad_app.DEFAULT_REF` supports ("held" otherwise). Jon runs
+  these from the page himself; Claude still never triggers them.
 - Never patch infra-TAK's `app.py` by default: "Update Now" (`git checkout --force`) erases it.
 - The boot finder must delegate to later meta-path finders, not PathFinder directly, or it
   bypasses Aleph's hook (`test_every_version_gets_the_integration` checks both attach).

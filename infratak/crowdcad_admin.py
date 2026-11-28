@@ -32,12 +32,14 @@ import filecmp
 import glob
 import json
 import os
+import re
 import shutil
 import ssl
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -333,6 +335,8 @@ def start_cloudtak(payload):
     if ct_dir and ct_dir != (cfg.get("cloudtak_dir") or ""):
         cfg["cloudtak_dir"] = ct_dir            # typed by hand: remember it
         hook._write_json(_data("config.json"), cfg, 0o640)
+    if hook._update_status()["state"] == "running":
+        raise Refused("An update is running — wait for it to finish (it may already include the plugin).")
     ct_dir = ct_dir or find_cloudtak(cfg)       # R47: found automatically otherwise
     if not ct_dir:
         raise Refused("No CloudTAK found on this server. Enter its folder (the one with docker-compose.yml).")
@@ -342,7 +346,44 @@ def start_cloudtak(payload):
     return {"message": "CloudTAK plugin install started."}
 
 
-ACTIONS = {"cert": install_cert, "settings": save_settings, "cloudtak": start_cloudtak,
+WEBTAK_PLUGIN = "/opt/tak/extract/webtak/plugins/crowdcad-board"   # webtak/install.sh's DEST_DIR
+_HOST = re.compile(r"^[A-Za-z0-9.-]+$")
+
+
+def update_args(component, cfg):
+    """install.sh options that reproduce this server's install (R49): the update job adds the rest."""
+    args = []
+    host = urllib.parse.urlsplit(cfg.get("public_url") or "").hostname or ""
+    if host and _HOST.match(host):
+        args += ["--domain", host]
+    if os.path.isdir(WEBTAK_PLUGIN):
+        args.append("--webtak")
+    if not os.path.isfile(os.path.join(hook.HOME, "crowdcad", "app.json")):
+        args.append("--no-crowdcad")          # CrowdCAD runs elsewhere: never build one here
+    if component == "cloudtak":
+        ct_dir = find_cloudtak(cfg)
+        if not ct_dir:
+            raise Refused("No CloudTAK found on this server, so there's no plugin to update.")
+        args += ["--cloudtak", ct_dir]
+    elif component == "crowdcad" and "--no-crowdcad" in args:
+        raise Refused("CrowdCAD isn't installed on this server, so it can't be updated from here.")
+    return args
+
+
+def start_update(payload):
+    component = payload.get("component")
+    if component not in ("bridge", "cloudtak", "crowdcad"):
+        raise Refused("unknown component")
+    if hook._update_status()["state"] == "running" or hook._cloudtak_status()["state"] == "running":
+        raise Refused("An install or update is already running — wait for it to finish.")
+    args = update_args(component, hook._read_json(_data("config.json")))
+    problem = hook._start_update_job(component, args)
+    if problem:
+        raise Refused(problem)
+    return {"message": "Update started."}
+
+
+ACTIONS = {"cert": install_cert, "settings": save_settings, "cloudtak": start_cloudtak, "update": start_update,
            "view": lambda payload: {"message": "ok"}}
 
 

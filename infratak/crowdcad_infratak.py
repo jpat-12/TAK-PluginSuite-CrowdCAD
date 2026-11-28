@@ -242,6 +242,10 @@ form label{display:block;font-size:12px;color:var(--text-dim);margin:12px 0 4px}
 .ubtn:hover{border-color:var(--cyan)}.ubtn.failed small{color:var(--red)}
 .ubtn.current{border-color:rgba(16,185,129,.45);background:rgba(16,185,129,.08)}.ubtn.current small{color:var(--green)}
 .ubtn.newer{border-color:rgba(234,179,8,.55);background:rgba(234,179,8,.08)}.ubtn.newer small{color:var(--yellow)}
+button.btn{font-family:'DM Sans',sans-serif}.btn.ghost{background:transparent;border:1px solid var(--border);color:var(--text-secondary)}
+.upbar{height:8px;background:#0a0e1a;border-radius:4px;overflow:hidden;margin:8px 0}.upbar i{display:block;height:100%;width:30%;background:var(--cyan);animation:ccslide 1.4s ease-in-out infinite}
+.upbar i.done{width:100%;background:var(--green);animation:none}.upbar i.failed{width:100%;background:var(--red);animation:none}
+@keyframes ccslide{0%{margin-left:-30%}100%{margin-left:100%}}@media (prefers-reduced-motion:reduce){.upbar i{animation:none;width:100%;opacity:.5}}
 details.card{padding:0}details.card>summary{list-style:none;cursor:pointer;padding:16px 20px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline}
 details.card>summary::-webkit-details-marker{display:none}details.card>summary::before{content:"\\25B8";color:var(--text-dim);display:inline-block;transition:transform .15s}
 details.card[open]>summary::before{transform:rotate(90deg)}details.card>summary .ttl{font-size:15px;font-weight:700}
@@ -260,18 +264,75 @@ HEAD = ('<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="
 
 E = html.escape
 
-# The update buttons in the status row (R47): ask the console, which asks GitHub main.
+# The update buttons in the status row (R47/R48: ask the console, which asks GitHub main, on load)
+# and "Install update" (R49): a yellow button opens a yes/no panel; yes starts the root job and
+# the panel follows its log until it ends (through the console restart it causes), then reloads.
 PAGE_SCRIPT = """<script>
+const ccEl = (id) => document.getElementById(id);
+const ccChecks = {};
+let ccUpdTimer = null, ccUpdBusy = false;
 async function ccCheck(btn) {
   const note = btn.querySelector('small');
   btn.className = 'ubtn'; note.textContent = 'Checking main…';
   try {
     const r = await fetch('/crowdcad/updates/' + encodeURIComponent(btn.dataset.c), {credentials: 'same-origin'});
     const j = await r.json();
-    btn.className = 'ubtn ' + (j.state || ''); note.textContent = j.message || ('HTTP ' + r.status);
+    ccChecks[btn.dataset.c] = j;
+    btn.className = 'ubtn ' + (j.state || '');
+    note.textContent = (j.message || ('HTTP ' + r.status)) + (j.installable ? ' · click to install' : '');
   } catch (e) { btn.className = 'ubtn failed'; note.textContent = 'Couldn’t check — click to retry'; }
 }
+function ccClick(btn) {
+  const j = ccChecks[btn.dataset.c];
+  if (j && j.installable && !ccUpdBusy) { ccConfirm(btn.dataset.c, j); return; }
+  ccCheck(btn);
+}
+function ccConfirm(component, j) {
+  const panel = ccEl('cc-upd');
+  panel.hidden = false; panel.dataset.c = component;
+  ccEl('cc-upd-title').textContent = 'Install ' + j.name + ' ' + j.latest + '?';
+  ccEl('cc-upd-text').textContent = j.confirm;
+  ccEl('cc-upd-ask').hidden = false; ccEl('cc-upd-run').hidden = true; ccEl('cc-upd-yes').disabled = false;
+  panel.scrollIntoView({block: 'nearest'});
+}
+function ccCancel() { ccEl('cc-upd').hidden = true; }
+async function ccInstall() {
+  const component = ccEl('cc-upd').dataset.c;
+  ccEl('cc-upd-yes').disabled = true;
+  try {
+    const r = await fetch('/crowdcad/updates/' + encodeURIComponent(component) + '/install',
+                          {method: 'POST', credentials: 'same-origin'});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { ccEl('cc-upd-text').textContent = j.error || ('Not started (HTTP ' + r.status + ')'); ccEl('cc-upd-yes').disabled = false; return; }
+    ccUpdShow(j.status || {state: 'running', label: 'Starting', tail: []});
+  } catch (e) { ccEl('cc-upd-text').textContent = 'Couldn’t reach the console — try again.'; ccEl('cc-upd-yes').disabled = false; }
+}
+function ccUpdShow(s) {
+  if (!s || s.state === 'idle') return;
+  const panel = ccEl('cc-upd');
+  panel.hidden = false; ccEl('cc-upd-ask').hidden = true; ccEl('cc-upd-run').hidden = false;
+  const names = {bridge: 'CrowdCAD for TAK', cloudtak: 'CloudTAK plugin', crowdcad: 'CrowdCAD'};
+  const what = names[s.component] || 'CrowdCAD for TAK';
+  ccUpdBusy = s.state === 'running';
+  ccEl('cc-upd-title').textContent = s.state === 'running' ? 'Updating ' + what
+    : s.state === 'done' ? what + ' updated' : what + ' update failed';
+  ccEl('cc-upd-label').textContent = s.state === 'done' ? 'Done — reloading the page…' : (s.label || '…');
+  ccEl('cc-upd-bar').className = s.state;
+  ccEl('cc-upd-error').textContent = s.state === 'failed' ? s.error : '';
+  ccEl('cc-upd-log').textContent = (s.tail || []).join('\\n');
+  if (ccUpdBusy && !ccUpdTimer) ccUpdTimer = setInterval(ccUpdPoll, 3000);
+  if (!ccUpdBusy && ccUpdTimer) { clearInterval(ccUpdTimer); ccUpdTimer = null; }
+  if (s.state === 'done') setTimeout(() => location.reload(), 2500);
+}
+async function ccUpdPoll() {
+  try {
+    const r = await fetch('/crowdcad/update-job', {credentials: 'same-origin'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    ccUpdShow(await r.json());
+  } catch (e) { ccEl('cc-upd-label').textContent = 'Reconnecting to the console (it restarts during an update)…'; }
+}
 document.querySelectorAll('.ubtn').forEach(ccCheck);   // R48: checked on every page load; click re-checks
+if (typeof ccUpdInitial !== 'undefined' && ccUpdInitial.state === 'running') ccUpdShow(ccUpdInitial);
 </script>"""
 
 
@@ -311,6 +372,21 @@ UPDATE_SOURCES = {   # component → (button name, URL of the version on main)
     "cloudtak": ("CloudTAK plugin", f"{_RAW}/jpat-12/TAK-PluginSuite-CrowdCAD/main/cloudtak/plugin/package.json"),
     "crowdcad": ("CrowdCAD", f"{_RAW}/evanqua/crowdcad/main/package.json"),
 }
+# The CrowdCAD release the bridge on main is checked against (crowdcad_app.DEFAULT_REF on main):
+# that, not CrowdCAD's own main, is what "Install update" may install (R49).
+SUPPORTED_CROWDCAD = f"{_RAW}/jpat-12/TAK-PluginSuite-CrowdCAD/main/infratak/crowdcad_app.py"
+CONFIRM = {   # what "Install update" will do, shown before the operator says yes
+    "bridge": ("Update CrowdCAD for TAK to {latest} from GitHub main? This moves this server's copy to main, "
+               "reinstalls the bridge, the console page and (if installed) the WebTAK plugin, then restarts the "
+               "bridge and the infra-TAK console. About a minute; this page reconnects by itself. Settings, "
+               "certificates and CrowdCAD's data are kept, and a backup is made first."),
+    "cloudtak": ("Install CloudTAK plugin {latest} from GitHub main? This also brings the bridge to main, then "
+                 "rebuilds CloudTAK: 5–15 minutes, with CloudTAK down for about 30 seconds at the end. Afterwards "
+                 "every CloudTAK user needs Settings → Refresh App."),
+    "crowdcad": ("Update CrowdCAD to {latest}, the release the bridge on main supports? This brings the bridge to "
+                 "main and rebuilds CrowdCAD's containers: several minutes, and dispatchers are signed out while it "
+                 "restarts. Events and calls are kept, and they're backed up first."),
+}
 _main_cache = {}     # component → (monotonic time, version); 10 min, so a page of clicks is one fetch
 
 
@@ -323,9 +399,16 @@ def _main_version(component):
     hit = _main_cache.get(component)
     if hit and time.monotonic() - hit[0] < 600:
         return hit[1]
-    with urllib.request.urlopen(UPDATE_SOURCES[component][1], timeout=8) as response:
-        text = response.read(65536).decode("utf-8", "replace")
-    version = text.strip().splitlines()[0].strip() if component == "bridge" else str(json.loads(text).get("version") or "")
+    url = SUPPORTED_CROWDCAD if component == "crowdcad-supported" else UPDATE_SOURCES[component][1]
+    with urllib.request.urlopen(url, timeout=8) as response:
+        text = response.read(262144).decode("utf-8", "replace")
+    if component == "bridge":
+        version = text.strip().splitlines()[0].strip()
+    elif component == "crowdcad-supported":
+        match = re.search(r'^DEFAULT_REF = "([^"]+)"', text, re.M)
+        version = match.group(1) if match else ""
+    else:
+        version = str(json.loads(text).get("version") or "")
     _main_cache[component] = (time.monotonic(), version)
     return version
 
@@ -344,16 +427,31 @@ def _update_check(component, installed):
     except Exception as error:
         _log(f"update check for {component} failed: {error!r}")
         return {"state": "failed", "message": "Couldn't reach GitHub"}
-    have, want = _vtuple(installed), _vtuple(latest)
+    def newer(version, message):
+        # R49: offered as "Install update", with what it will do spelled out for the confirmation.
+        return {"state": "newer", "message": message, "latest": version, "name": name, "installable": True,
+                "confirm": CONFIRM[component].format(latest=version)}
+
     if installed is None:
         return {"state": "unknown", "message": f"Not installed · main has {latest}"}
+    if component == "crowdcad":
+        # Only the release the bridge on main is checked against may be installed from here.
+        try:
+            supported = _main_version("crowdcad-supported")
+        except Exception as error:
+            _log(f"supported CrowdCAD release unknown: {error!r}")
+            supported = ""
+        if _vtuple(supported) and _vtuple(installed) and _vtuple(supported) > _vtuple(installed):
+            return newer(supported, f"{supported} supported on main — update available")
+        if _vtuple(latest) and _vtuple(installed) and _vtuple(latest) > _vtuple(installed):
+            return {"state": "held", "message": f"{latest} on CrowdCAD's main — the bridge doesn't support it yet"}
     if installed == "out of date":   # crowdcad_admin.OUTDATED (R48): files differ from the server's source
-        return {"state": "newer", "message": f"{latest} on main — update available", "latest": latest, "name": name}
+        return newer(latest, f"{latest} on main — update available")
+    have, want = _vtuple(installed), _vtuple(latest)
     if have is None or want is None:
         return {"state": "unknown", "message": f"main has {latest}; installed version unknown"}
     if want > have:
-        extra = " — check the bridge supports it first" if component == "crowdcad" else " — update available"
-        return {"state": "newer", "message": f"{latest} on main{extra}", "latest": latest, "name": name}
+        return newer(latest, f"{latest} on main — update available")
     if want == have:
         return {"state": "current", "message": f"Up to date with main ({latest})"}
     return {"state": "current", "message": f"Newer than main ({latest})"}
@@ -364,9 +462,24 @@ def _update_buttons(detail, versions):
     for component, (name, _url) in UPDATE_SOURCES.items():
         have = _installed_version(component, detail, versions)
         shown = "not installed" if have is None else (have or "version unknown")
-        out.append(f'<button class="ubtn" type="button" data-c="{component}" onclick="ccCheck(this)">'
+        out.append(f'<button class="ubtn" type="button" data-c="{component}" onclick="ccClick(this)">'
                    f'<b>{E(name)} {E(shown)}</b><small>Check main for updates</small></button>')
     return "".join(out)
+
+
+def _update_panel():
+    """R49: the yes/no confirmation for "Install update", then the job's progress and log."""
+    initial = json.dumps(_update_status()).replace("<", "\\u003c")
+    return f"""<div class="card" id="cc-upd" hidden>
+<h2 id="cc-upd-title"></h2>
+<div id="cc-upd-ask"><div id="cc-upd-text" style="font-size:13px;color:var(--text-secondary);line-height:1.5"></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" id="cc-upd-yes" onclick="ccInstall()">Yes, install the update</button>
+<button class="btn ghost" type="button" onclick="ccCancel()">Cancel</button></div></div>
+<div id="cc-upd-run" hidden><div class="label" id="cc-upd-label"></div>
+<div class="upbar"><i id="cc-upd-bar"></i></div>
+<div class="dim" id="cc-upd-error" style="color:var(--red)"></div>
+<details class="dim"><summary>Update log</summary><pre id="cc-upd-log" style="white-space:pre-wrap;font-size:11px;max-height:300px;overflow:auto"></pre></details></div>
+</div><script>const ccUpdInitial = {initial};</script>"""
 
 
 def _details_card(running, detail):
@@ -554,6 +667,80 @@ def _cloudtak_status():
 
 
 _SAFE_DIR = re.compile(r"^/[A-Za-z0-9._/-]+$")
+
+
+# --- "Install update" job (tracker R49) ---------------------------------------------------------
+# bin/crowdcad_update_job.sh in the transient unit crowdcad-update (it restarts this console, and a
+# CloudTAK rebuild takes minutes). Started only by the root helper; the page reads its log.
+UPDATE_UNIT = "crowdcad-update"
+
+
+def _update_log():
+    return os.path.join(CONSOLE_DIR if os.path.isdir(CONSOLE_DIR) else DATA_DIR, "update.log")
+
+
+def _parse_update(text, active):
+    """Log text → {state: idle|running|done|failed, component, label, error, tail}. Pure."""
+    if text is None:
+        return {"state": "idle", "component": "", "label": "", "error": "", "tail": []}
+    lines = [_ANSI.sub("", raw).rstrip("\r") for raw in text.splitlines()]
+    component, label, error, exit_code = "", "", "", None
+    for line in lines:
+        match = re.match(r"^==> Update started \S+: (\w+)", line)
+        if match:
+            component = match.group(1)
+        match = _EXIT.match(line)
+        if match:
+            exit_code = int(match.group(1))
+        elif line.startswith("==> ERROR"):
+            error = line[len("==> ERROR"):].strip()
+        elif line.startswith("==> "):
+            label = line[4:].strip()
+    tail = [line for line in lines if line.strip()][-60:]
+    if exit_code == 0:
+        state = "done"
+    elif exit_code is not None:
+        state, error = "failed", error or "failed (see the log)"
+    elif active:
+        state = "running"
+    else:
+        state, error = "failed", error or "the update stopped without finishing (see the log)"
+    return {"state": state, "component": component, "label": label, "error": error, "tail": tail}
+
+
+def _update_status():
+    try:
+        with open(_update_log(), encoding="utf-8", errors="replace") as stream:
+            text = stream.read()
+    except OSError:
+        text = None
+    active = False
+    if text is not None and not any(_EXIT.match(line) for line in text.splitlines()):
+        active = bool(shutil.which("systemctl")) and subprocess.run(
+            ["systemctl", "is-active", "--quiet", UPDATE_UNIT], capture_output=True, timeout=10).returncode == 0
+    return _parse_update(text, active)
+
+
+def _start_update_job(component, args):
+    """Root helper only. → None, or why it didn't start."""
+    script = os.path.join(HOME, "bin", "crowdcad_update_job.sh")
+    if not os.path.exists(script):
+        return "This server's CrowdCAD for TAK predates in-page updates — run the install command once."
+    if not shutil.which("systemd-run"):
+        return "systemd-run isn't available on this server."
+    log = _update_log()
+    _write_console_file(log, f"==> Queued from the infra-TAK console: {component}\n")
+    command = " ".join(shlex.quote(part) for part in ["exec", "/bin/bash", script, component, *args])
+    result = subprocess.run(["systemd-run", "--unit", UPDATE_UNIT, "--collect", "--quiet",
+                             f"--setenv=CROWDCAD_HOME={HOME}", "/bin/bash", "-c",
+                             f"{command} >> {shlex.quote(log)} 2>&1"], capture_output=True, text=True, timeout=30)
+    if result.returncode != 0:
+        message = (result.stderr or result.stdout or "systemd-run failed").strip()
+        with open(log, "a", encoding="utf-8") as stream:
+            stream.write(f"==> ERROR couldn't start the update: {message}\n==> EXIT 1\n")
+        return f"Couldn't start the update: {message}"
+    _log(f"update started: {component} ({' '.join(args)})")
+    return None
 
 
 def _start_job(ct_dir):
@@ -765,7 +952,7 @@ def _register_routes(g):
                 '<div class="sub">CrowdCAD event-medical dispatch on the TAK map: calls, teams and venue zones, '
                 'live, in IU Event CAD\'s CoT format.</div>' + problem
                 + '<div class="toprow">' + _status_banner(installed, running, detail)
-                + _update_buttons(detail, versions) + '</div>'
+                + _update_buttons(detail, versions) + '</div>' + _update_panel()
                 + _details_card(running, detail) + _events_card(detail)
                 + _cert_html(cert, cert_notice) + _settings_html(cfg, secrets, saved, error)
                 + _cloudtak_html(cfg, secrets, versions) + PAGE_SCRIPT
@@ -854,6 +1041,21 @@ def _register_routes(g):
         _, _, detail = _service_status()
         return jsonify(_update_check(component, _installed_version(component, detail, _view_versions())))
 
+    def update_install(component):
+        # R49: the operator said yes in the panel. The root helper re-checks everything (component,
+        # nothing else running, CloudTAK/CrowdCAD present) and starts the job.
+        if cross_origin():
+            return jsonify(error="Cross-origin request refused"), 403
+        if component not in UPDATE_SOURCES:
+            return jsonify(error="unknown component"), 404
+        answer = _admin("update", {"component": component}, timeout=30)
+        if not answer.get("ok"):
+            return jsonify(error=answer.get("message") or "couldn't start", status=_update_status()), 409
+        return jsonify(ok=True, status=_update_status())
+
+    def update_job():
+        return jsonify(_update_status())
+
     def save():
         if cross_origin():
             return "Cross-origin request refused", 403
@@ -870,6 +1072,9 @@ def _register_routes(g):
                      login_required(cloudtak_install), methods=["POST"])
     app.add_url_rule("/crowdcad/cloudtak/status", "crowdcad_console_cloudtak_status", login_required(cloudtak_status))
     app.add_url_rule("/crowdcad/updates/<component>", "crowdcad_console_update_check", login_required(update_check))
+    app.add_url_rule("/crowdcad/updates/<component>/install", "crowdcad_console_update_install",
+                     login_required(update_install), methods=["POST"])
+    app.add_url_rule("/crowdcad/update-job", "crowdcad_console_update_job", login_required(update_job))
 
 
 def attach(module):
