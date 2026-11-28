@@ -228,7 +228,7 @@ class ConsoleJobTest(unittest.TestCase):
         page = self.client.get("/crowdcad").get_data(as_text=True)
         self.assertIn("Install CloudTAK plugin", page)
         self.assertIn('id="cc-ct-bar"', page)
-        self.assertNotIn("b0ard</", page.split("CloudTAK plugin</h2>")[1])   # the card itself shows no token
+        self.assertNotIn("b0ard</", page.split('id="cc-cloudtak"')[1])   # the card itself shows no token
 
     def test_unpublished_board_disables_and_refuses(self):
         page = self.client.get("/crowdcad").get_data(as_text=True)

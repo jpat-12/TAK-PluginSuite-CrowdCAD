@@ -132,8 +132,10 @@ def _view(refresh=False):
     """(config, secrets-for-display, cert info) for the page (R43): direct for a root console,
     else console/view.json from the helper (refreshed in the background on each page load)."""
     if refresh:
+        # R47: wait for the fresh view (the path unit answers in well under a second), so the
+        # settings form always shows what's saved; on a slow helper, fall back to the last view.
         try:
-            _admin("view", wait=_is_root(), timeout=10)
+            _admin("view", wait=True, timeout=10 if _is_root() else 4)
         except Exception as error:
             _log(f"view refresh skipped: {error!r}")
     view = _read_json(os.path.join(CONSOLE_DIR, "view.json"))
@@ -141,6 +143,12 @@ def _view(refresh=False):
         return (_read_json(os.path.join(DATA_DIR, "config.json")),
                 _read_json(os.path.join(DATA_DIR, "secrets.json")), {})
     return view.get("config") or {}, view.get("secrets") or {}, view.get("cert") or {}
+
+
+def _view_versions():
+    """What's installed where (R47), from the helper's view.json: cloudtak_dir, cloudtak,
+    cloudtak_plugin, crowdcad. Missing keys = an older helper; the page then shows "unknown"."""
+    return _read_json(os.path.join(CONSOLE_DIR, "view.json")).get("versions") or {}
 
 
 def _service_status(fresh=False):
@@ -227,7 +235,20 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;p
 form label{display:block;font-size:12px;color:var(--text-dim);margin:12px 0 4px}input[type=text],input[type=password],textarea{width:100%;background:#0a0e1a;border:1px solid var(--border);color:var(--text-primary);border-radius:6px;padding:8px;font-family:'JetBrains Mono',monospace;font-size:12px}
 .checks label{display:inline-flex;gap:6px;margin-right:16px;color:var(--text-secondary)}
 .btn{margin-top:16px;padding:10px 18px;border:0;border-radius:8px;background:var(--cyan);color:#001;font-weight:600;font-size:13px;cursor:pointer}
-.dim{color:var(--text-dim);font-size:12px;margin-top:8px}code{font-family:'JetBrains Mono',monospace;font-size:12px}"""
+.dim{color:var(--text-dim);font-size:12px;margin-top:8px}code{font-family:'JetBrains Mono',monospace;font-size:12px}
+.toprow{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}.toprow .banner{flex:1 1 280px;margin:0;display:flex;align-items:center}
+.ubtn{flex:0 1 auto;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:8px 12px;color:var(--text-secondary);font:500 12px 'DM Sans',sans-serif;cursor:pointer;text-align:left;min-width:150px}
+.ubtn b{display:block;color:var(--text-primary);font-size:13px}.ubtn small{display:block;color:var(--text-dim);font-size:11px;margin-top:2px}
+.ubtn:hover{border-color:var(--cyan)}.ubtn.newer{border-color:rgba(234,179,8,.6)}.ubtn.newer small{color:var(--yellow)}.ubtn.current small{color:var(--green)}.ubtn.failed small{color:var(--red)}
+details.card{padding:0}details.card>summary{list-style:none;cursor:pointer;padding:16px 20px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline}
+details.card>summary::-webkit-details-marker{display:none}details.card>summary::before{content:"\\25B8";color:var(--text-dim);display:inline-block;transition:transform .15s}
+details.card[open]>summary::before{transform:rotate(90deg)}details.card>summary .ttl{font-size:15px;font-weight:700}
+details.card>summary .sumline{color:var(--text-dim);font-size:12px;margin-left:auto;min-width:0;overflow-wrap:anywhere}
+details.card>.body{padding:0 20px 20px}
+.pairs{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:12px}
+.subcard{background:#0a0e1a;border:1px solid var(--border);border-radius:10px;padding:14px;min-width:0}.subcard h3{font-size:13px;margin-bottom:2px}
+.subcard input[type=file]{width:100%;font-size:12px;color:var(--text-secondary)}
+input[type=file]::file-selector-button{background:#273042;color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:5px 10px;margin-right:8px;font:500 12px 'DM Sans',sans-serif;cursor:pointer}.subcard form label,.subcard label{margin-top:10px}"""
 
 HEAD = ('<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">'
         '<title>CrowdCAD — infra-TAK</title>'
@@ -237,55 +258,154 @@ HEAD = ('<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="
 
 E = html.escape
 
+# The update buttons in the status row (R47): ask the console, which asks GitHub main.
+PAGE_SCRIPT = """<script>
+async function ccCheck(btn) {
+  const note = btn.querySelector('small');
+  btn.className = 'ubtn'; note.textContent = 'Checking main…';
+  try {
+    const r = await fetch('/crowdcad/updates/' + encodeURIComponent(btn.dataset.c), {credentials: 'same-origin'});
+    const j = await r.json();
+    btn.className = 'ubtn ' + (j.state || ''); note.textContent = j.message || ('HTTP ' + r.status);
+  } catch (e) { btn.className = 'ubtn failed'; note.textContent = 'Couldn’t check — try again'; }
+}
+</script>"""
+
 
 def _when(ms):
     return time.strftime("%H:%M:%S", time.localtime(ms / 1000)) if ms else "—"
 
 
-def _status_html(installed, running, detail):
+def _card(card_id, title, summary, body, open_=False):
+    """Tracker R47: every card below the status row folds, closed unless it has news (a result,
+    an error, a running job)."""
+    return (f'<details class="card" id="{card_id}"{" open" if open_ else ""}>'
+            f'<summary><span class="ttl">{E(title)}</span><span class="sumline">{summary}</span></summary>'
+            f'<div class="body">{body}</div></details>')
+
+
+def _status_banner(installed, running, detail):
     if not installed:
         return '<div class="banner bad">● Bridge not installed — run <code>sudo bash infratak/install.sh</code></div>'
     if not running:
         return '<div class="banner bad">● Installed but not responding — <code>journalctl -u crowdcad-tak -n 50</code></div>'
     if detail.get("configured") is False:
-        return '<div class="banner warn">● Running, waiting for settings — fill in CrowdCAD below</div>'
+        return '<div class="banner warn">● Running, waiting for settings — fill in CrowdCAD under Settings</div>'
     cc, tak = detail.get("crowdcad") or {}, detail.get("tak") or {}
     mode = cc.get("mode")
     cc_text = {"live": "live (realtime)", "polling": "polling — realtime unavailable",
                "down": "unreachable", "starting": "connecting"}.get(mode, mode or "?")
     healthy = mode == "live" and tak.get("connected")
-    out = [f'<div class="banner {"ok" if healthy else "warn"}">● CrowdCAD {E(cc_text)} · TAK '
-           f'{"connected" if tak.get("connected") else "not connected"}</div>',
-           '<div class="card"><div class="grid">',
-           f'<div class="item"><div class="label">CrowdCAD</div><div class="value">{E(cc.get("url") or "—")}</div></div>',
-           f'<div class="item"><div class="label">Last full sync</div><div class="value">{_when(cc.get("last_sync"))}</div></div>',
-           f'<div class="item"><div class="label">TAK Server</div><div class="value">{E(tak.get("host") or "—")} · {int(tak.get("sent") or 0)} sent</div></div>',
-           f'<div class="item"><div class="label">Bridge version</div><div class="value">{E(str(detail.get("version", "—")))}</div></div>',
-           '</div>']
-    for label, value in (("CrowdCAD error", cc.get("last_error")), ("TAK error", tak.get("last_error"))):
-        if value:
-            out.append(f'<div class="dim">{label}: <code>{E(str(value))}</code></div>')
-    out.append("</div>")
-    events = detail.get("events") or []
-    out.append('<div class="card"><h2>Events on the map</h2>')
-    if not events:
-        out.append('<div class="dim">No active CrowdCAD events selected.</div>')
-    else:
-        out.append("<table><tr><th>Event</th><th>Calls</th><th>Teams</th><th>Zones</th><th>Not on the map</th></tr>")
-        for event in events:
-            counts = event.get("counts") or {}
-            missing = "<br>".join(f'{E(u["kind"])} <b>{E(u["label"])}</b> at “{E(u["location"])}”'
-                                  for u in event.get("unplaced") or []) or "—"
-            out.append(f'<tr><td>{E(event.get("name") or "")}<div class="dim">{E(event.get("id") or "")}</div></td>'
-                       f'<td>{counts.get("incident", 0)}</td><td>{counts.get("unit", 0)}</td>'
-                       f'<td>{counts.get("zone", 0)}</td><td>{missing}</td></tr>')
-        out.append("</table><div class=\"dim\">Calls and teams can only be placed when their location is a post on a "
-                   "venue layer with map bounds (GeoJSON-imported, or bounds set below).</div>")
-    out.append("</div>")
+    return (f'<div class="banner {"ok" if healthy else "warn"}">● CrowdCAD {E(cc_text)} · TAK '
+            f'{"connected" if tak.get("connected") else "not connected"}</div>')
+
+
+# --- "is there a newer version on GitHub main?" (tracker R47) -----------------------------------
+# Only main counts (dev and tags are ignored). The console fetches raw files itself: no root needed.
+_RAW = "https://raw.githubusercontent.com"
+UPDATE_SOURCES = {   # component → (button name, URL of the version on main)
+    "bridge": ("Bridge", f"{_RAW}/jpat-12/TAK-PluginSuite-CrowdCAD/main/VERSION"),
+    "cloudtak": ("CloudTAK plugin", f"{_RAW}/jpat-12/TAK-PluginSuite-CrowdCAD/main/cloudtak/plugin/package.json"),
+    "crowdcad": ("CrowdCAD", f"{_RAW}/evanqua/crowdcad/main/package.json"),
+}
+_main_cache = {}     # component → (monotonic time, version); 10 min, so a page of clicks is one fetch
+
+
+def _vtuple(version):
+    parts = re.findall(r"\d+", str(version or "").split("-")[0])
+    return tuple(int(p) for p in parts[:3]) if parts else None
+
+
+def _main_version(component):
+    hit = _main_cache.get(component)
+    if hit and time.monotonic() - hit[0] < 600:
+        return hit[1]
+    with urllib.request.urlopen(UPDATE_SOURCES[component][1], timeout=8) as response:
+        text = response.read(65536).decode("utf-8", "replace")
+    version = text.strip().splitlines()[0].strip() if component == "bridge" else str(json.loads(text).get("version") or "")
+    _main_cache[component] = (time.monotonic(), version)
+    return version
+
+
+def _installed_version(component, detail, versions):
+    if component == "bridge":
+        return detail.get("version") or ""
+    return versions.get("cloudtak_plugin" if component == "cloudtak" else "crowdcad")
+
+
+def _update_check(component, installed):
+    """installed: version string, "" (installed, version unknown) or None (not installed). Pure but the fetch."""
+    name = UPDATE_SOURCES[component][0]
+    try:
+        latest = _main_version(component)
+    except Exception as error:
+        _log(f"update check for {component} failed: {error!r}")
+        return {"state": "failed", "message": "Couldn't reach GitHub"}
+    have, want = _vtuple(installed), _vtuple(latest)
+    if installed is None:
+        return {"state": "unknown", "message": f"Not installed · main has {latest}"}
+    if have is None or want is None:
+        return {"state": "unknown", "message": f"main has {latest}; installed version unknown"}
+    if want > have:
+        extra = " — check the bridge supports it first" if component == "crowdcad" else " — update available"
+        return {"state": "newer", "message": f"{latest} on main{extra}", "latest": latest, "name": name}
+    if want == have:
+        return {"state": "current", "message": f"Up to date with main ({latest})"}
+    return {"state": "current", "message": f"Newer than main ({latest})"}
+
+
+def _update_buttons(detail, versions):
+    out = []
+    for component, (name, _url) in UPDATE_SOURCES.items():
+        have = _installed_version(component, detail, versions)
+        shown = "not installed" if have is None else (have or "version unknown")
+        out.append(f'<button class="ubtn" type="button" data-c="{component}" onclick="ccCheck(this)">'
+                   f'<b>{E(name)} {E(shown)}</b><small>Check main for updates</small></button>')
     return "".join(out)
 
 
-def _settings_html(cfg, secrets, saved):
+def _details_card(running, detail):
+    cc, tak = detail.get("crowdcad") or {}, detail.get("tak") or {}
+    body = ['<div class="grid">',
+            f'<div class="item"><div class="label">CrowdCAD</div><div class="value">{E(cc.get("url") or "—")}</div></div>',
+            f'<div class="item"><div class="label">Last full sync</div><div class="value">{_when(cc.get("last_sync"))}</div></div>',
+            f'<div class="item"><div class="label">TAK Server</div><div class="value">{E(tak.get("host") or "—")} · {int(tak.get("sent") or 0)} sent</div></div>',
+            f'<div class="item"><div class="label">Bridge version</div><div class="value">{E(str(detail.get("version", "—")))}</div></div>',
+            '</div>']
+    errors = [(label, value) for label, value in (("CrowdCAD error", cc.get("last_error")), ("TAK error", tak.get("last_error"))) if value]
+    for label, value in errors:
+        body.append(f'<div class="dim">{label}: <code>{E(str(value))}</code></div>')
+    summary = (f'{E(tak.get("host") or "TAK —")} · {int(tak.get("sent") or 0)} sent · synced {_when(cc.get("last_sync"))}'
+               if running else "bridge not running")
+    if errors:
+        summary = f'<span style="color:var(--red)">{len(errors)} error{"s" if len(errors) > 1 else ""}</span> · ' + summary
+    return _card("cc-details", "Connection details", summary, "".join(body), open_=bool(errors))
+
+
+def _events_card(detail):
+    events = detail.get("events") or []
+    if not events:
+        return _card("cc-events", "Events on the map", "none selected",
+                     '<div class="dim">No active CrowdCAD events selected.</div>')
+    rows = ["<table><tr><th>Event</th><th>Calls</th><th>Teams</th><th>Zones</th><th>Not on the map</th></tr>"]
+    unplaced = 0
+    for event in events:
+        counts = event.get("counts") or {}
+        unplaced += len(event.get("unplaced") or [])
+        missing = "<br>".join(f'{E(u["kind"])} <b>{E(u["label"])}</b> at “{E(u["location"])}”'
+                              for u in event.get("unplaced") or []) or "—"
+        rows.append(f'<tr><td>{E(event.get("name") or "")}<div class="dim">{E(event.get("id") or "")}</div></td>'
+                    f'<td>{counts.get("incident", 0)}</td><td>{counts.get("unit", 0)}</td>'
+                    f'<td>{counts.get("zone", 0)}</td><td>{missing}</td></tr>')
+    rows.append('</table><div class="dim">Calls and teams can only be placed when their location is a post on a '
+                'venue layer with map bounds (GeoJSON-imported, or bounds set under Settings).</div>')
+    summary = f'{len(events)} event{"s" if len(events) != 1 else ""}'
+    if unplaced:
+        summary += f' · <span style="color:var(--yellow)">{unplaced} not on the map</span>'
+    return _card("cc-events", "Events on the map", summary, '<div style="overflow-x:auto">' + "".join(rows) + "</div>")
+
+
+def _settings_html(cfg, secrets, saved, error=""):
     publish = cfg.get("publish") or {}
     events = cfg.get("events", "active")
     team_lines = "\n".join(f"{k} = {v}" for k, v in sorted((cfg.get("team_uids") or {}).items()))
@@ -293,7 +413,13 @@ def _settings_html(cfg, secrets, saved):
         f'<label><input type="checkbox" name="publish_{key}"{" checked" if publish.get(key, default) else ""}> {label}</label>'
         for key, label, default in (("calls", "Calls", True), ("teams", "Teams", True), ("zones", "Zones", True),
                                     ("posts", "Posts", False), ("clinic_walkups", "Clinic walk-ups", False)))
-    return f"""<div class="card"><h2>Settings</h2>{'<div class="banner ok">Saved — bridge restarted.</div>' if saved else ''}
+    notice = ('<div class="banner ok">Saved — bridge restarted.</div>' if saved else '') + \
+        (f'<div class="banner bad">{E(error)}</div>' if error else '')
+    if cfg.get("crowdcad_url"):
+        summary = f'{E(cfg.get("crowdcad_identity") or "no bridge account")} · events: {E(events if isinstance(events, str) else ", ".join(events))}'
+    else:
+        summary = '<span style="color:var(--yellow)">CrowdCAD not set</span>'
+    body = f"""{notice}
 <form method="post" action="/crowdcad/settings">
 <label>CrowdCAD PocketBase URL (what CrowdCAD's NEXT_PUBLIC_POCKETBASE_URL points at)</label>
 <input type="text" name="crowdcad_url" value="{E(cfg.get('crowdcad_url') or '')}" placeholder="https://crowdcad.example.org or http://127.0.0.1:8090">
@@ -313,21 +439,22 @@ def _settings_html(cfg, secrets, saved):
 <label>WebTAK page origins allowed to read the board — one per line (CloudTAK doesn't need one)</label>
 <textarea name="cors_origins" rows="3">{E(chr(10).join(cfg.get('cors_origins') or []))}</textarea>
 <button class="btn" type="submit">Save and restart bridge</button></form>
-<div class="dim">Patient fields (age, sex, notes, call log) never leave CrowdCAD — see the repo's docs/COT_FORMAT.md.</div></div>
-{_clients_html(cfg, secrets)}"""
+<div class="dim">Patient fields (age, sex, notes, call log) never leave CrowdCAD — see the repo's docs/COT_FORMAT.md.</div>"""
+    return _card("cc-settings", "Settings", summary, body, open_=bool(saved or error)) + _clients_html(cfg, secrets)
 
 
 def _clients_html(cfg, secrets):
     url = cfg.get("public_url") or ""
     token = secrets.get("board_token") or ""
-    return f"""<div class="card"><h2>Clients</h2><div class="grid">
+    body = f"""<div class="grid">
 <div class="item"><div class="label">ATAK</div><div class="value">CrowdCAD APK — reads the bridge's CoT; nothing to configure</div></div>
 <div class="item"><div class="label">Board URL (CloudTAK / WebTAK)</div><div class="value">{E(url or "not published — needs an FQDN and Caddy")}</div></div>
 </div>
 <details class="dim"><summary>Board token</summary><code>{E(token or "none — re-run install.sh")}</code>
 <div>Read-only and patient-data-free, but treat it as a secret. The installer bakes it into the CloudTAK
 server config and the WebTAK bundle (<code>install.sh --cloudtak --webtak</code>). To rotate: remove
-<code>board_token</code> from /opt/crowdcad-tak/data/secrets.json and re-run that command.</div></details></div>"""
+<code>board_token</code> from /opt/crowdcad-tak/data/secrets.json and re-run that command.</div></details>"""
+    return _card("cc-clients", "Clients", E(url or "board not published"), body)
 
 
 # --- "Install CloudTAK plugin" button (tracker R41) ------------------------------------------
@@ -453,19 +580,37 @@ def _start_job(ct_dir):
     return None
 
 
-def _cloudtak_html(cfg, secrets):
+def _cloudtak_html(cfg, secrets, versions=None):
+    versions = versions or {}
     ready = bool(cfg.get("public_url") and secrets.get("board_token"))
     status = _cloudtak_status()
     initial = json.dumps(status).replace("<", "\\u003c")   # safe inside <script>; outside the f-string (py3.10)
     why = "" if ready else ('<div class="banner warn">The board isn\'t published yet (no public URL or board '
                             'token) — run the server install first.</div>')
-    return f"""<div class="card" id="cc-cloudtak"><h2>CloudTAK plugin</h2>{why}
-<div class="dim">Installs CrowdCAD Dispatch into the CloudTAK on this host: backs up the current plugin,
-copies the new one in, rebuilds CloudTAK (5–15 min; CloudTAK is down for about 30 s at the end) and checks
+    ct_dir, plugin = versions.get("cloudtak_dir") or "", versions.get("cloudtak_plugin")
+    if ct_dir:   # R47: found by the root helper (running container's compose dir, then the usual places)
+        where = (f'<div class="grid"><div class="item"><div class="label">CloudTAK found</div><div class="value">'
+                 f'{E(ct_dir)}{" · " + E(versions["cloudtak"]) if versions.get("cloudtak") else ""}</div></div>'
+                 f'<div class="item"><div class="label">CrowdCAD plugin</div><div class="value">'
+                 f'{"not installed" if plugin is None else E(plugin or "installed (version not recorded)")}</div></div></div>'
+                 '<input type="hidden" name="cloudtak_dir" value="">')
+    else:
+        where = ('<div class="banner warn">No CloudTAK found on this server. Enter its folder (the one with '
+                 'docker-compose.yml).</div><label>CloudTAK folder</label>'
+                 f'<input type="text" name="cloudtak_dir" value="{E(cfg.get("cloudtak_dir") or "")}" placeholder="/root/CloudTAK">')
+    if status["state"] == "running":
+        summary = f'installing · {status["percent"]}%'
+    elif status["state"] == "failed":
+        summary = '<span style="color:var(--red)">last install failed</span>'
+    elif not ct_dir:
+        summary = '<span style="color:var(--yellow)">CloudTAK not found</span>'
+    else:
+        summary = "plugin not installed" if plugin is None else f"plugin {E(plugin or 'installed')}"
+    body = f"""{why}
+<div class="dim" style="margin:0 0 12px">Installs CrowdCAD Dispatch into this server's CloudTAK: backs up the current
+plugin, copies the new one in, rebuilds CloudTAK (5–15 min; CloudTAK is down for about 30 s at the end) and checks
 it came back. Then, in each browser: CloudTAK → Settings → Refresh App.</div>
-<form id="cc-ct-form" onsubmit="return ccStart(event)">
-<label>CloudTAK directory (blank = the running CloudTAK)</label>
-<input type="text" name="cloudtak_dir" value="{E(cfg.get('cloudtak_dir') or '')}" placeholder="/root/CloudTAK">
+<form id="cc-ct-form" onsubmit="return ccStart(event)">{where}
 <button class="btn" id="cc-ct-btn" type="submit"{'' if ready else ' disabled'}>Install CloudTAK plugin</button></form>
 <div id="cc-ct-progress" style="margin-top:16px;display:none">
 <div class="label" id="cc-ct-label"></div>
@@ -473,7 +618,8 @@ it came back. Then, in each browser: CloudTAK → Settings → Refresh App.</div
 <div id="cc-ct-bar" style="height:100%;width:0;background:var(--cyan);transition:width .6s"></div></div>
 <div class="dim" id="cc-ct-error" style="color:var(--red)"></div>
 <details class="dim"><summary>Install log</summary><pre id="cc-ct-log" style="white-space:pre-wrap;font-size:11px;max-height:260px;overflow:auto"></pre></details>
-</div></div>
+</div>"""
+    return _card("cc-cloudtak", "CloudTAK plugin", summary, body, open_=status["state"] == "running") + f"""
 <script>
 const ccInitial = {initial};
 let ccTimer = null;
@@ -516,24 +662,32 @@ def _cert_html(cert, notice):
            f'{E(cert.get("subject") or "—")}</div></div><div class="item"><div class="label">Expires</div>'
            f'<div class="value">{E(cert.get("expires") or "—")}</div></div><div class="item"><div class="label">'
            f'File</div><div class="value">{E(cert.get("path") or "—")}</div></div></div>')
-    return f"""<div class="card" id="cc-cert"><h2>TAK certificate</h2>{notice}{now}
-<div class="dim">On a TAK Server whose users come from TAK Portal / LDAP, the bridge's groups come from its
-certificate's LDAP identity, so use a TAK Portal <b>Global</b> integration made for the bridge (in the medics'
-group) — the certificate the installer makes with makeCert.sh has no LDAP identity there.
-Upload its <code>.p12</code> (or the <code>.pem</code> + <code>.key</code>), and optionally the truststore.</div>
+    # Tracker R47: what's installed on one row, then the three ways in, each with its own password.
+    body = f"""{notice}{now}
+<div class="dim">With TAK Portal, use the certificate of a TAK Portal <b>Global</b> integration made for the bridge, in
+the medics' group: its groups come from TAK Portal. Use the .p12 <i>or</i> the certificate and key; the truststore is optional.</div>
 <form method="post" action="/crowdcad/cert" enctype="multipart/form-data">
-<label>Client certificate (.p12)</label><input type="file" name="client_p12" accept=".p12,.pfx">
-<label>— or — certificate (.pem) and key (.key)</label>
-<input type="file" name="client_pem" accept=".pem,.crt"> <input type="file" name="client_key" accept=".key,.pem">
-<label>Password (for the .p12, or for the key if it's encrypted)</label>
-<input type="password" name="client_password" autocomplete="off">
-<label>Truststore (.p12) or CA (.pem) — optional; leave empty to keep the current CA</label>
-<input type="file" name="truststore_p12" accept=".p12,.pfx"> <input type="file" name="ca_pem" accept=".pem,.crt">
+<div class="pairs">
+<div class="subcard"><h3>.p12 bundle</h3><div class="dim" style="margin:0">Certificate and key in one file (TAK Portal's download).</div>
+<label>.p12 file</label><input type="file" name="client_p12" accept=".p12,.pfx">
+<label>.p12 password</label><input type="password" name="p12_password" autocomplete="off" placeholder="often atakatak"></div>
+<div class="subcard"><h3>Certificate and key</h3><div class="dim" style="margin:0">Instead of a .p12: the .pem and its .key.</div>
+<label>Certificate (.pem)</label><input type="file" name="client_pem" accept=".pem,.crt">
+<label>Key (.key)</label><input type="file" name="client_key" accept=".key,.pem">
+<label>Key password (only if the key is encrypted)</label><input type="password" name="key_password" autocomplete="off"></div>
+<div class="subcard"><h3>Truststore or CA <span class="dim">(optional)</span></h3><div class="dim" style="margin:0">Leave empty to keep the current CA.</div>
+<label>Truststore (.p12)</label><input type="file" name="truststore_p12" accept=".p12,.pfx">
 <label>Truststore password</label><input type="password" name="truststore_password" autocomplete="off" placeholder="often atakatak">
+<label>— or — CA (.pem)</label><input type="file" name="ca_pem" accept=".pem,.crt"></div>
+</div>
 <button class="btn" type="submit">Install certificate and restart bridge</button></form>
 <div class="dim">Checked before anything is replaced: the key must match the certificate and the passwords must
 open them. The old files stay in /opt/crowdcad-tak/certs. If TAK still says not connected with a brand-new
-integration, restart the bridge once more after a minute (TAK caches "no groups" on the first connection).</div></div>"""
+integration, restart the bridge once more after a minute (TAK caches "no groups" on the first connection).</div>"""
+    summary = E(cert.get("subject") or "no certificate")
+    if cert.get("expires"):
+        summary += f' · expires {E(cert["expires"])}'
+    return _card("cc-cert", "TAK certificate", summary, body, open_=bool(notice))
 
 
 def _parse_settings(form, cfg, secrets):
@@ -596,15 +750,20 @@ def _register_routes(g):
         except Exception as exc:
             _log(f"sidebar unavailable on this page: {exc!r}")
         cfg, secrets, cert = _view(refresh=True)
-        problem = f'<div class="banner bad">{E(error)}</div>' if error else ""
+        versions = _view_versions()
+        problem = ""
         if not cfg and not _is_root():
-            problem += ('<div class="banner warn">Settings unavailable: the console runs without root and the '
-                        'CrowdCAD helper hasn\'t answered yet. Reload in a few seconds; if this stays, re-run '
+            problem += ('<div class="banner warn">Settings unavailable: the CrowdCAD helper hasn\'t answered. '
+                        'Reload in a few seconds; if this stays, re-run '
                         '<code>sudo bash /opt/crowdcad-tak/src/install.sh</code> on the server.</div>')
         return (HEAD + sidebar + '<div class="main"><h1>CrowdCAD for TAK</h1>'
                 '<div class="sub">CrowdCAD event-medical dispatch on the TAK map: calls, teams and venue zones, '
-                'live, in IU Event CAD\'s CoT format.</div>' + problem + _status_html(installed, running, detail)
-                + _cert_html(cert, cert_notice) + _settings_html(cfg, secrets, saved) + _cloudtak_html(cfg, secrets)
+                'live, in IU Event CAD\'s CoT format.</div>' + problem
+                + '<div class="toprow">' + _status_banner(installed, running, detail)
+                + _update_buttons(detail, versions) + '</div>'
+                + _details_card(running, detail) + _events_card(detail)
+                + _cert_html(cert, cert_notice) + _settings_html(cfg, secrets, saved, error)
+                + _cloudtak_html(cfg, secrets, versions) + PAGE_SCRIPT
                 + "</div></body></html>")
 
     def page():
@@ -619,10 +778,20 @@ def _register_routes(g):
             data = upload.read(64 * 1024 + 1) if upload else b""
             if data:
                 payload[name] = base64.b64encode(data).decode()
-        for name in ("client_password", "truststore_password"):
-            if request.form.get(name):
-                payload[name] = request.form[name]
-        answer = _admin("cert", payload, timeout=60)
+        if payload.get("client_p12") and (payload.get("client_pem") or payload.get("client_key")):
+            answer = {"ok": False, "message": "Use the .p12 or the certificate and key, not both."}
+        elif payload.get("truststore_p12") and payload.get("ca_pem"):
+            answer = {"ok": False, "message": "Use the truststore or the CA file, not both."}
+        else:
+            # R47: each sub-card has its own password field; the helper takes one client password.
+            # client_password is still accepted from older pages.
+            password = (request.form.get("p12_password") if payload.get("client_p12") else request.form.get("key_password"))
+            password = password or request.form.get("client_password") or ""
+            if password:
+                payload["client_password"] = password
+            if request.form.get("truststore_password"):
+                payload["truststore_password"] = request.form["truststore_password"]
+            answer = _admin("cert", payload, timeout=60)
         kind = "ok" if answer.get("ok") and answer.get("connected") else "warn" if answer.get("ok") else "bad"
         return render(cert_notice=f'<div class="banner {kind}">{E(answer.get("message") or "")}</div>'), \
             (200 if answer.get("ok") else 400)
@@ -663,6 +832,12 @@ def _register_routes(g):
     def cloudtak_status():
         return jsonify(_cloudtak_status())
 
+    def update_check(component):
+        if component not in UPDATE_SOURCES:
+            return jsonify(state="failed", message="unknown component"), 404
+        _, _, detail = _service_status()
+        return jsonify(_update_check(component, _installed_version(component, detail, _view_versions())))
+
     def save():
         if cross_origin():
             return "Cross-origin request refused", 403
@@ -678,6 +853,7 @@ def _register_routes(g):
     app.add_url_rule("/crowdcad/cloudtak/install", "crowdcad_console_cloudtak_install",
                      login_required(cloudtak_install), methods=["POST"])
     app.add_url_rule("/crowdcad/cloudtak/status", "crowdcad_console_cloudtak_status", login_required(cloudtak_status))
+    app.add_url_rule("/crowdcad/updates/<component>", "crowdcad_console_update_check", login_required(update_check))
 
 
 def attach(module):

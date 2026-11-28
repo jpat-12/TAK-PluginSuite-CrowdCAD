@@ -194,6 +194,65 @@ class CertTest(_Base):
         self.assertIn(".p12", self.hook._admin("cert", {})["message"])
 
 
+class VersionsTest(_Base):
+    """Tracker R47: CloudTAK found without asking; versions compared with GitHub main."""
+
+    def fake_cloudtak(self, plugin_version=None):
+        ct = self.tmp / "CloudTAK"
+        (ct / "api" / "web" / "plugins" / "crowdcad").mkdir(parents=True)
+        (ct / "api" / "web" / "plugin.ts").write_text("")
+        (ct / "package.json").write_text(json.dumps({"version": "13.77.1"}))
+        if plugin_version is not None:
+            (ct / "api" / "web" / "plugins" / "crowdcad" / "index.ts").write_text("")
+            (ct / "api" / "web" / "plugins" / "crowdcad" / "VERSION").write_text(plugin_version + "\n")
+        self.admin.CLOUDTAK_GUESSES = [str(ct)]
+        return ct
+
+    def test_finds_cloudtak_and_reads_installed_versions(self):
+        ct = self.fake_cloudtak("1.0.4")
+        (self.tmp / "crowdcad").mkdir()
+        (self.tmp / "crowdcad" / "app.json").write_text(json.dumps({"ref": "v1.6.0"}))
+        self.assertEqual(self.admin.installed_versions({}), {
+            "cloudtak_dir": str(ct), "cloudtak": "13.77.1", "cloudtak_plugin": "1.0.4", "crowdcad": "v1.6.0"})
+
+    def test_nothing_installed(self):
+        self.admin.CLOUDTAK_GUESSES = []
+        got = self.admin.installed_versions({})
+        self.assertEqual((got["cloudtak_plugin"], got["crowdcad"]), (None, None))
+
+    def test_cloudtak_job_uses_the_found_folder(self):
+        ct = self.fake_cloudtak()
+        started = []
+        self.hook._start_job = lambda d: started.append(d)
+        self.assertTrue(self.hook._admin("cloudtak", {"dir": ""})["ok"])
+        self.assertEqual(started, [str(ct)])
+
+    def test_view_carries_versions(self):
+        self.fake_cloudtak("1.0.3")
+        self.hook._admin("view")
+        self.assertEqual(self.hook._view_versions()["cloudtak_plugin"], "1.0.3")
+
+    def check(self, installed, main):
+        self.hook._main_version = lambda component: main
+        return self.hook._update_check("bridge", installed)
+
+    def test_update_states(self):
+        self.assertEqual(self.check("1.0.3", "1.0.4")["state"], "newer")
+        self.assertIn("1.0.4 on main", self.check("1.0.3", "1.0.4")["message"])
+        self.assertEqual(self.check("1.0.4", "1.0.4")["message"], "Up to date with main (1.0.4)")
+        self.assertEqual(self.check("1.0.4", "0.1.0")["message"], "Newer than main (0.1.0)")
+        self.assertIn("Not installed", self.check(None, "1.0.4")["message"])
+        self.assertIn("unknown", self.check("", "1.0.4")["message"])
+        self.assertEqual(self.hook._vtuple("v1.6.0"), (1, 6, 0))
+        self.assertGreater(self.hook._vtuple("1.0.10"), self.hook._vtuple("1.0.9"))
+
+    def test_github_unreachable(self):
+        def boom(component):
+            raise OSError("offline")
+        self.hook._main_version = boom
+        self.assertEqual(self.hook._update_check("crowdcad", "v1.6.0")["state"], "failed")
+
+
 @unittest.skipUnless(flask and OPENSSL, "Flask or openssl not installed")
 class PageTest(_Base):
     def setUp(self):
@@ -223,6 +282,45 @@ class PageTest(_Base):
         self.assertEqual(response.status_code, 200, body)
         self.assertIn("global-crowdcad", body)
         self.assertTrue(self.config()["tak_cert"].endswith("tak-client.pem"))
+
+    def test_cards_fold_closed_and_status_row_has_update_buttons(self):
+        page = self.client.get("/crowdcad").get_data(as_text=True)
+        for card in ("cc-details", "cc-events", "cc-cert", "cc-settings", "cc-clients", "cc-cloudtak"):
+            self.assertIn(f'<details class="card" id="{card}">', page)        # closed: no " open"
+        self.assertEqual(page.count('class="ubtn"'), 3)
+        self.assertIn('name="p12_password"', page)
+        self.assertIn('name="key_password"', page)
+
+    def test_save_error_opens_settings(self):
+        page = self.client.post("/crowdcad/settings", data={"crowdcad_url": "ftp://x"}).get_data(as_text=True)
+        self.assertIn('<details class="card" id="cc-settings" open>', page)
+
+    def test_update_route(self):
+        self.hook._main_version = lambda component: "9.9.9"
+        body = self.client.get("/crowdcad/updates/bridge").get_json()
+        self.assertEqual(body["state"], "unknown")             # this fake bridge reports no version
+        self.assertEqual(self.client.get("/crowdcad/updates/nope").status_code, 404)
+
+    def p12_post(self, **extra):
+        CertTest.setUpClass()
+        self.addCleanup(CertTest.tearDownClass)
+        import io
+        d = CertTest.certdir
+        data = {"client_p12": (io.BytesIO((d / "client.p12").read_bytes()), "global-crowdcad.p12"), **extra}
+        if "client_pem" in extra:
+            data["client_pem"] = (io.BytesIO((d / "client.pem").read_bytes()), "c.pem")
+        return self.client.post("/crowdcad/cert", content_type="multipart/form-data", data=data)
+
+    def test_p12_with_its_own_password_field(self):
+        response = self.p12_post(p12_password="atakatak")
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        self.assertTrue(self.config()["tak_cert"].endswith("tak-client.pem"))
+
+    def test_p12_and_pem_together_refused(self):
+        response = self.p12_post(p12_password="atakatak", client_pem="yes")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not both", response.get_data(as_text=True))
+        self.assertNotIn("tak_cert", self.config())
 
     def test_upload_behind_caddy_is_same_origin(self):
         # R45: Caddy forwards to 127.0.0.1:5001, so Host is the upstream; the browser's origin

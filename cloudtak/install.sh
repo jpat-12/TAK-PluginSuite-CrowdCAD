@@ -113,6 +113,10 @@ if [ "$ACTION" = "install" ]; then
     rm -rf "$WEB_DEST"
     mkdir -p "$WEB_DEST"
     cp -r "$HERE/plugin/index.ts" "$HERE/plugin/components" "$HERE/plugin/lib" "$WEB_DEST/"
+    # Tracker R47: the console page compares this with GitHub main (package.json isn't copied:
+    # a package.json under CloudTAK's plugins/ could be picked up as a workspace).
+    python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" "$HERE/plugin/package.json" > "$WEB_DEST/VERSION" \
+        || echo "WARNING: couldn't record the plugin version" >&2
     if [ "$LAYOUT" != "legacy" ]; then   # stateless routes import ../../common/auth.js, ../config.js
         sed -e "s#from '../lib/auth.js'#from '../../common/auth.js'#"             -e "s#^import Config from '../lib/config.js';#import type Config from '../config.js';#"             "$HERE/server/plugin-crowdcad.ts" > "$ROUTE_DEST"
     else

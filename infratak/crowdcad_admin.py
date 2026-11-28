@@ -247,6 +247,56 @@ def save_settings(payload):
     return {"message": "Saved — bridge restarted."}
 
 
+# --- what's installed where (tracker R47) ---------------------------------------------------------
+# CloudTAK is found the way cloudtak/install.sh finds it (the running api container's compose dir),
+# then the usual checkout places; the page shows it instead of asking for a directory.
+CLOUDTAK_GUESSES = ["/root/CloudTAK", "/home/takwerx/CloudTAK", "/opt/CloudTAK"]
+
+
+def _is_cloudtak(path):
+    return bool(path) and (os.path.isfile(os.path.join(path, "app", "plugin.ts"))
+                           or os.path.isfile(os.path.join(path, "api", "web", "plugin.ts")))
+
+
+def find_cloudtak(cfg):
+    """→ the CloudTAK checkout on this host, or "". A dir set in config wins if it's a checkout."""
+    candidates = [cfg.get("cloudtak_dir") or ""]
+    try:
+        out = subprocess.run(["docker", "inspect", "cloudtak-api-1", "--format",
+                              '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}'],
+                             capture_output=True, text=True, timeout=10)
+        if out.returncode == 0:
+            candidates.append(out.stdout.strip())
+    except Exception:
+        pass   # no docker / no container: fall back to the usual places (never break the view over a probe)
+    candidates += CLOUDTAK_GUESSES + sorted(glob.glob("/home/*/CloudTAK"))
+    return next((c.rstrip("/") for c in candidates if _is_cloudtak(c)), "")
+
+
+def _first_line(path):
+    try:
+        with open(path, encoding="utf-8") as stream:
+            return stream.readline().strip()
+    except OSError:
+        return ""
+
+
+def installed_versions(cfg):
+    """Versions the page compares with GitHub main. "" = installed, version unknown; None = not installed."""
+    ct_dir = find_cloudtak(cfg)
+    plugin = None
+    for web in ("app/plugins/crowdcad", "api/web/plugins/crowdcad"):
+        if ct_dir and os.path.isfile(os.path.join(ct_dir, web, "index.ts")):
+            plugin = _first_line(os.path.join(ct_dir, web, "VERSION"))   # written by cloudtak/install.sh since R47
+            break
+    cloudtak = ""
+    if ct_dir:
+        cloudtak = str(hook._read_json(os.path.join(ct_dir, "package.json")).get("version") or "")
+    app = hook._read_json(os.path.join(hook.HOME, "crowdcad", "app.json"))
+    return {"cloudtak_dir": ct_dir, "cloudtak": cloudtak, "cloudtak_plugin": plugin,
+            "crowdcad": app.get("ref") if app else None}
+
+
 def start_cloudtak(payload):
     ct_dir = (payload.get("dir") or "").strip().rstrip("/")
     cfg = hook._read_json(_data("config.json"))
@@ -255,9 +305,12 @@ def start_cloudtak(payload):
         raise Refused("The board isn't published yet — run the server install first.")
     if ct_dir and (not hook._SAFE_DIR.match(ct_dir) or ".." in ct_dir.split("/")):
         raise Refused("CloudTAK directory must be an absolute path like /root/CloudTAK")
-    if ct_dir != (cfg.get("cloudtak_dir") or ""):
-        cfg["cloudtak_dir"] = ct_dir
+    if ct_dir and ct_dir != (cfg.get("cloudtak_dir") or ""):
+        cfg["cloudtak_dir"] = ct_dir            # typed by hand: remember it
         hook._write_json(_data("config.json"), cfg, 0o640)
+    ct_dir = ct_dir or find_cloudtak(cfg)       # R47: found automatically otherwise
+    if not ct_dir:
+        raise Refused("No CloudTAK found on this server. Enter its folder (the one with docker-compose.yml).")
     problem = hook._start_job(ct_dir)
     if problem:
         raise Refused(problem)
@@ -278,6 +331,7 @@ def write_view():
             "secrets": {"crowdcad_password": bool(secrets.get("crowdcad_password")),
                         "board_token": secrets.get("board_token") or ""},
             "cert": dict(_subject(cert), path=cert) if os.path.exists(cert) else {"path": cert},
+            "versions": installed_versions(cfg),
             "at": int(time.time())}
     hook._write_console_file(os.path.join(hook.CONSOLE_DIR, "view.json"), json.dumps(view, indent=2))
 

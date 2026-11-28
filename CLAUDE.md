@@ -43,6 +43,11 @@ Facts an agent needs that the code can't show. Workspace-wide rules: `../CLAUDE.
   `crowdcad_infratak.py` directly: send it to `bin/crowdcad_admin.py` with `_admin(action, payload)`
   (request files in `/opt/crowdcad-tak/console/`, run by `crowdcad-tak-admin.path`; a root
   console runs the helper itself). The page reads config/flags from `console/view.json`.
+- **Console page layout (R47):** status banner + one update button per component in one row; every
+  other card is a `_card()` `<details>`, closed unless it has news. Update buttons compare with
+  GitHub **main** only (`UPDATE_SOURCES`), so main must get each release or installs read "newer than main".
+  CloudTAK is found by `crowdcad_admin.find_cloudtak` (no folder field unless nothing is found);
+  `cloudtak/install.sh` writes the plugin's `VERSION` next to it for the page.
 - Never patch infra-TAK's `app.py` by default: "Update Now" (`git checkout --force`) erases it.
 - The boot finder must delegate to later meta-path finders, not PathFinder directly, or it
   bypasses Aleph's hook (`test_every_version_gets_the_integration` checks both attach).
